@@ -6,6 +6,7 @@ def get_admin_keyboard():
     buttons = [
         [KeyboardButton(text="📦 Добавить жидкость")],
         [KeyboardButton(text="📋 Список жидкостей")],
+        [KeyboardButton(text="📊 Заявки на покупку")],
         [KeyboardButton(text="🗑 Удалить жидкость")],
         [KeyboardButton(text="🏠 Главное меню")]
     ]
@@ -30,18 +31,34 @@ def get_liquids_keyboard(liquids: list):
     builder = InlineKeyboardBuilder()
     for liquid in liquids:
         builder.button(
-            text=f"{liquid['name']} - {liquid['flavor']} ({liquid['strength']} mg, {liquid['volume']} ml)",
+            text=f"{liquid['name']} - {liquid['flavor']} ({liquid['strength']} mg, {liquid['volume']} ml) - {liquid['price']}₽",
             callback_data=f"liquid_{liquid['id']}"
         )
     builder.adjust(1)
     return builder.as_markup()
+
+def get_liquid_action_keyboard(liquid_id: int):
+    """Клавиатура действий с жидкостью"""
+    buttons = [
+        [InlineKeyboardButton(text="💰 Купить", callback_data=f"buy_{liquid_id}")],
+        [InlineKeyboardButton(text="◀️ Назад к каталогу", callback_data="back_to_catalog")]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_confirm_purchase_keyboard(liquid_id: int):
+    """Клавиатура подтверждения покупки"""
+    buttons = [
+        [InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"confirm_buy_{liquid_id}")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data=f"cancel_buy_{liquid_id}")]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def get_admin_liquids_keyboard(liquids: list):
     """Клавиатура со списком жидкостей для админа (для удаления)"""
     builder = InlineKeyboardBuilder()
     for liquid in liquids:
         builder.button(
-            text=f"❌ {liquid['name']} - {liquid['flavor']}",
+            text=f"❌ {liquid['name']} - {liquid['flavor']} ({liquid['price']}₽)",
             callback_data=f"admin_delete_{liquid['id']}"
         )
     builder.button(text="◀️ Назад", callback_data="back_to_admin_menu")
