@@ -6,7 +6,7 @@ class LiquidStates(StatesGroup):
     flavor = State()
     strength = State()
     volume = State()
-    price = State()  # Добавляем состояние для цены
+    price = State()
     image = State()
 
 class PurchaseStates(StatesGroup):
