@@ -15,6 +15,7 @@ from states import PurchaseStates
 import logging
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 
+# Инициализация роутера, базы данных и логгера
 router = Router()
 db = Database()
 logger = logging.getLogger(__name__)

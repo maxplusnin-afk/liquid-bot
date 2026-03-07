@@ -38,7 +38,7 @@ def get_liquids_keyboard(liquids: list):
     return builder.as_markup()
 
 def get_liquid_action_keyboard(liquid_id: int):
-    """Клавиатура действий с жидкостью"""
+    """Клавиатура действий с жидкостью - ЭТА ФУНКЦИЯ ДОЛЖНА БЫТЬ!"""
     buttons = [
         [InlineKeyboardButton(text="💰 Купить", callback_data=f"buy_{liquid_id}")],
         [InlineKeyboardButton(text="◀️ Назад к каталогу", callback_data="back_to_catalog")]
