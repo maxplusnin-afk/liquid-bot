@@ -82,7 +82,7 @@ async def show_product(callback: CallbackQuery):
     product = db.get_product(product_id)
 
     if not product:
-        await callback.message.edit_text("❌ Товар не найден")
+        await callback.message.edit_caption("❌ Товар не найден")
         return
 
     text = (
@@ -99,33 +99,170 @@ async def show_product(callback: CallbackQuery):
     )
 
 
-# ===== ПОКУПКА =====
+# ===== КОРЗИНА =====
 
-@router.callback_query(F.data.startswith('buy_'))
-async def buy_start(callback: CallbackQuery, state: FSMContext):
+@router.callback_query(F.data.startswith('add_to_cart_'))
+async def add_to_cart(callback: CallbackQuery):
     await callback.answer()
 
-    product_id = int(callback.data.replace('buy_', ''))
+    product_id = int(callback.data.replace('add_to_cart_', ''))
     product = db.get_product(product_id)
 
     if not product:
         await callback.message.edit_caption("❌ Товар не найден")
         return
 
-    await state.update_data(
-        product_id=product_id,
-        product_name=f"{product['brand_name']} - {product['name']}",
-        product_price=product['price']
+    # Добавляем в корзину
+    db.add_to_cart(callback.from_user.id, product_id)
+
+    # Показываем подтверждение
+    await callback.answer("✅ Товар добавлен в корзину!", show_alert=False)
+
+    # Обновляем сообщение с кнопкой
+    text = (
+        f"✅ **Товар добавлен в корзину!**\n\n"
+        f"🍼 **{product['name']}**\n"
+        f"🏭 Бренд: {product['brand_name']}\n"
+        f"👃 Вкус: {product['flavor']}\n"
+        f"💪 Крепость: {product['strength']} mg\n"
+        f"💰 Цена: {product['price']}₽"
     )
 
-    await state.set_state(OrderStates.username)
+    # Добавляем кнопку для перехода в корзину
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🛒 Перейти в корзину", callback_data="go_to_cart")],
+        [InlineKeyboardButton(text="◀️ Продолжить покупки", callback_data="back_to_brands")]
+    ])
+
+    await callback.message.edit_caption(caption=text, reply_markup=keyboard)
+
+
+@router.message(F.text == "🛒 Корзина")
+async def show_cart(message: Message):
+    cart = db.get_cart(message.from_user.id)
+
+    if not cart['items']:
+        await message.answer(
+            "🛒 **Корзина пуста**\n\nДобавьте товары из каталога.",
+            reply_markup=get_main_keyboard()
+        )
+        return
+
+    # Формируем текст корзины
+    text = "🛒 **Ваша корзина:**\n\n"
+    for i, item in enumerate(cart['items'], 1):
+        text += f"{i}. **{item['brand_name']} - {item['name']}**\n"
+        text += f"   👃 Вкус: {item['flavor']}\n"
+        text += f"   💪 Крепость: {item['strength']} mg\n"
+        text += f"   {item['quantity']} x {item['price']}₽ = {item['total']}₽\n\n"
+
+    text += f"💰 **ИТОГО: {cart['total']}₽**"
+
+    await message.answer(
+        text,
+        reply_markup=get_cart_keyboard(cart['items'])
+    )
+
+
+@router.callback_query(F.data.startswith('remove_from_cart_'))
+async def remove_from_cart(callback: CallbackQuery):
+    await callback.answer()
+
+    cart_id = int(callback.data.replace('remove_from_cart_', ''))
+    db.remove_from_cart(cart_id)
+
+    # Показываем обновленную корзину
+    cart = db.get_cart(callback.from_user.id)
+
+    if not cart['items']:
+        await callback.message.edit_text(
+            "🛒 **Корзина пуста**\n\nДобавьте товары из каталога.",
+            reply_markup=get_main_keyboard()
+        )
+        return
+
+    text = "🛒 **Ваша корзина:**\n\n"
+    for i, item in enumerate(cart['items'], 1):
+        text += f"{i}. **{item['brand_name']} - {item['name']}**\n"
+        text += f"   👃 Вкус: {item['flavor']}\n"
+        text += f"   💪 Крепость: {item['strength']} mg\n"
+        text += f"   {item['quantity']} x {item['price']}₽ = {item['total']}₽\n\n"
+
+    text += f"💰 **ИТОГО: {cart['total']}₽**"
+
+    await callback.message.edit_text(
+        text,
+        reply_markup=get_cart_keyboard(cart['items'])
+    )
+
+
+@router.callback_query(F.data == "clear_cart")
+async def clear_cart(callback: CallbackQuery):
+    await callback.answer()
+
+    db.clear_cart(callback.from_user.id)
+
+    await callback.message.edit_text(
+        "🗑 **Корзина очищена**\n\nДобавьте товары из каталога.",
+        reply_markup=get_main_keyboard()
+    )
+
+
+@router.callback_query(F.data == "go_to_cart")
+async def go_to_cart(callback: CallbackQuery):
+    await callback.answer()
+
+    cart = db.get_cart(callback.from_user.id)
+
+    if not cart['items']:
+        await callback.message.edit_caption(
+            caption="🛒 **Корзина пуста**",
+            reply_markup=get_brands_keyboard(db.get_all_brands())
+        )
+        return
+
+    text = "🛒 **Ваша корзина:**\n\n"
+    for i, item in enumerate(cart['items'], 1):
+        text += f"{i}. **{item['brand_name']} - {item['name']}**\n"
+        text += f"   👃 Вкус: {item['flavor']}\n"
+        text += f"   💪 Крепость: {item['strength']} mg\n"
+        text += f"   {item['quantity']} x {item['price']}₽ = {item['total']}₽\n\n"
+
+    text += f"💰 **ИТОГО: {cart['total']}₽**"
 
     await callback.message.edit_caption(
-        "📝 **Для покупки введите ваш Telegram username**\n\n"
-        "Пример: @username\n\n"
+        caption=text,
+        reply_markup=get_cart_keyboard(cart['items'])
+    )
+
+
+# ===== ОФОРМЛЕНИЕ ЗАКАЗА =====
+
+@router.callback_query(F.data == "checkout")
+async def checkout_start(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+
+    cart = db.get_cart(callback.from_user.id)
+
+    if not cart['items']:
+        await callback.message.edit_text(
+            "❌ Корзина пуста",
+            reply_markup=get_main_keyboard()
+        )
+        return
+
+    # Сохраняем данные корзины в состояние
+    await state.update_data(cart=cart)
+    await state.set_state(OrderStates.username)
+
+    await callback.message.edit_text(
+        "📝 **Оформление заказа**\n\n"
+        f"💰 Сумма заказа: {cart['total']}₽\n\n"
+        "✏️ **Пожалуйста, напишите ваш Telegram username**\n"
+        "(например: @username)\n\n"
         "Это нужно, чтобы продавец мог с вами связаться.",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="◀️ Отмена", callback_data="cancel_buy")]
+            [InlineKeyboardButton(text="◀️ Вернуться в корзину", callback_data="back_to_cart")]
         ])
     )
 
@@ -138,55 +275,57 @@ async def process_username(message: Message, state: FSMContext):
         username = '@' + username
 
     data = await state.get_data()
+    cart = data.get('cart')
+
+    if not cart:
+        await message.answer(
+            "❌ Ошибка! Пожалуйста, начните заново.",
+            reply_markup=get_main_keyboard()
+        )
+        await state.clear()
+        return
 
     # Создаем заказ
-    order_id = db.add_order(
+    order_id = db.create_order(
         user_id=message.from_user.id,
         username=username,
-        product_id=data['product_id'],
-        product_name=data['product_name'],
-        price=data['product_price']
+        cart_items=cart['items'],
+        total_price=cart['total']
     )
 
-    # Уведомление пользователю
+    # Очищаем корзину
+    db.clear_cart(message.from_user.id)
+
+    # Сообщение пользователю
     await message.answer(
-        f"✅ **Заказ #{order_id} оформлен!**\n\n"
-        f"Товар: {data['product_name']}\n"
-        f"Цена: {data['product_price']}₽\n"
-        f"Ваш username: {username}\n\n"
-        f"⏳ Продавец свяжется с вами в ближайшие 5 минут!\n\n"
+        f"✅ **Заказ #{order_id} успешно оформлен!**\n\n"
+        f"💰 **Сумма заказа:** {cart['total']}₽\n"
+        f"📱 **Ваш username:** {username}\n\n"
+        f"⏳ **Продавец свяжется с вами в ближайшие 5 минут!**\n\n"
         f"Спасибо за покупку!",
         reply_markup=get_main_keyboard()
     )
 
     # Уведомление админам
+    products_text = ""
+    for item in cart['items']:
+        products_text += f"{item['brand_name']} - {item['name']} x{item['quantity']} = {item['total']}₽\n"
+
     for admin_id in ADMIN_IDS:
         try:
             await message.bot.send_message(
                 admin_id,
-                f"🔔 **Новый заказ #{order_id}!**\n\n"
-                f"👤 Пользователь: {message.from_user.full_name}\n"
-                f"📱 Username: {username}\n"
-                f"🆔 User ID: {message.from_user.id}\n"
-                f"🍼 Товар: {data['product_name']}\n"
-                f"💰 Цена: {data['product_price']}₽"
+                f"🔔 **НОВЫЙ ЗАКАЗ #{order_id}!**\n\n"
+                f"👤 **Покупатель:** {message.from_user.full_name}\n"
+                f"📱 **Username:** {username}\n"
+                f"🆔 **User ID:** {message.from_user.id}\n"
+                f"📦 **Товары:**\n{products_text}\n"
+                f"💰 **ИТОГО:** {cart['total']}₽"
             )
-        except:
-            pass
+        except Exception as e:
+            logger.error(f"Ошибка при уведомлении админа {admin_id}: {e}")
 
     await state.clear()
-
-
-@router.callback_query(F.data == "cancel_buy")
-async def cancel_buy(callback: CallbackQuery, state: FSMContext):
-    await callback.answer()
-    await state.clear()
-
-    brands = db.get_all_brands()
-    await callback.message.edit_caption(
-        "❌ Покупка отменена",
-        reply_markup=get_brands_keyboard(brands)
-    )
 
 
 # ===== ИНФОРМАЦИЯ =====
@@ -197,8 +336,11 @@ async def info(message: Message):
         "📞 **Как купить:**\n\n"
         "1️⃣ Зайдите в **Каталог**\n"
         "2️⃣ Выберите бренд и товар\n"
-        "3️⃣ Нажмите **Купить** и введите свой Telegram username\n"
-        "4️⃣ Ожидайте! В ближайшие 5 минут вам напишут\n\n"
+        "3️⃣ Нажмите **Добавить в корзину**\n"
+        "4️⃣ Зайдите в **Корзину**\n"
+        "5️⃣ Нажмите **Сделать заказ**\n"
+        "6️⃣ Введите свой Telegram username\n"
+        "7️⃣ Ожидайте! Продавец свяжется с вами в ближайшие 5 минут\n\n"
         f"👤 **Продавец:** {SELLER_CONTACT}"
     )
 
@@ -212,7 +354,7 @@ async def back_to_brands(callback: CallbackQuery, state: FSMContext):
 
     brands = db.get_all_brands()
     await callback.message.edit_caption(
-        "Выберите бренд:",
+        caption="Выберите бренд:",
         reply_markup=get_brands_keyboard(brands)
     )
 
@@ -225,8 +367,37 @@ async def back_to_products(callback: CallbackQuery, state: FSMContext):
     # Возвращаемся к брендам
     brands = db.get_all_brands()
     await callback.message.edit_caption(
-        "Выберите бренд:",
+        caption="Выберите бренд:",
         reply_markup=get_brands_keyboard(brands)
+    )
+
+
+@router.callback_query(F.data == "back_to_cart")
+async def back_to_cart(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await state.clear()
+
+    cart = db.get_cart(callback.from_user.id)
+
+    if not cart['items']:
+        await callback.message.edit_text(
+            "🛒 **Корзина пуста**",
+            reply_markup=get_main_keyboard()
+        )
+        return
+
+    text = "🛒 **Ваша корзина:**\n\n"
+    for i, item in enumerate(cart['items'], 1):
+        text += f"{i}. **{item['brand_name']} - {item['name']}**\n"
+        text += f"   👃 Вкус: {item['flavor']}\n"
+        text += f"   💪 Крепость: {item['strength']} mg\n"
+        text += f"   {item['quantity']} x {item['price']}₽ = {item['total']}₽\n\n"
+
+    text += f"💰 **ИТОГО: {cart['total']}₽**"
+
+    await callback.message.edit_text(
+        text,
+        reply_markup=get_cart_keyboard(cart['items'])
     )
 
 

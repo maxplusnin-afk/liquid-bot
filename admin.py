@@ -358,8 +358,8 @@ async def order_details(callback: CallbackQuery):
         f"📋 **Заказ #{order['id']}**\n\n"
         f"👤 Пользователь: {order['username'] or 'не указан'}\n"
         f"🆔 User ID: {order['user_id']}\n"
-        f"🍼 Товар: {order['product_name']}\n"
-        f"💰 Цена: {order['price']}₽\n"
+        f"📦 Товары:\n{order['products']}\n"
+        f"💰 Итого: {order['total_price']}₽\n"
         f"📊 Статус: {order['status']}\n"
         f"📅 Дата: {order['created_at'][:16]}"
     )
