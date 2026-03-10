@@ -20,17 +20,27 @@ class Database:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
 
+                # Таблица брендов
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS brands (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        name TEXT NOT NULL UNIQUE,
+                        image_id TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+
                 # Таблица товаров (жидкости)
                 cursor.execute('''
                     CREATE TABLE IF NOT EXISTS liquids (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        brand_id INTEGER NOT NULL,
                         name TEXT NOT NULL,
                         flavor TEXT NOT NULL,
                         strength TEXT NOT NULL,
-                        volume TEXT NOT NULL,
                         price INTEGER NOT NULL DEFAULT 0,
-                        image_id TEXT,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (brand_id) REFERENCES brands (id) ON DELETE CASCADE
                     )
                 ''')
 
@@ -55,52 +65,133 @@ class Database:
         except Exception as e:
             logger.error(f"Ошибка инициализации БД: {e}")
 
-    # ===== Функции для жидкостей =====
+    # ===== Функции для брендов =====
 
-    def add_liquid(self, name: str, flavor: str, strength: str, volume: str, price: int, image_id: str = "") -> \
-    Optional[int]:
-        """Добавление жидкости с ценой"""
+    def add_brand(self, name: str, image_id: str = "") -> Optional[int]:
+        """Добавление бренда"""
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute('''
-                    INSERT INTO liquids (name, flavor, strength, volume, price, image_id)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                ''', (name, flavor, strength, volume, price, image_id))
+                    INSERT INTO brands (name, image_id)
+                    VALUES (?, ?)
+                ''', (name, image_id))
                 conn.commit()
-                liquid_id = cursor.lastrowid
-                logger.info(f"Жидкость добавлена с ID: {liquid_id}, цена: {price}₽, image_id: {image_id}")
-                return liquid_id
+                brand_id = cursor.lastrowid
+                logger.info(f"Бренд добавлен с ID: {brand_id}, название: {name}")
+                return brand_id
+        except sqlite3.IntegrityError:
+            logger.error(f"Бренд с названием {name} уже существует")
+            return None
         except Exception as e:
-            logger.error(f"Ошибка добавления жидкости: {e}")
+            logger.error(f"Ошибка добавления бренда: {e}")
             return None
 
-    def get_all_liquids(self) -> List[Dict]:
-        """Получение всех жидкостей"""
+    def get_all_brands(self) -> List[Dict]:
+        """Получение всех брендов"""
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute('''
-                    SELECT id, name, flavor, strength, volume, price, image_id, created_at 
-                    FROM liquids 
-                    ORDER BY created_at DESC
+                    SELECT id, name, image_id, created_at 
+                    FROM brands 
+                    ORDER BY name ASC
                 ''')
                 items = cursor.fetchall()
                 return [
                     {
                         'id': item[0],
                         'name': item[1],
-                        'flavor': item[2],
-                        'strength': item[3],
-                        'volume': item[4],
-                        'price': item[5],
-                        'image_id': item[6] if item[6] else "",
-                        'created_at': item[7]
+                        'image_id': item[2] if item[2] else "",
+                        'created_at': item[3]
                     }
                     for item in items
                 ]
         except Exception as e:
-            logger.error(f"Ошибка получения жидкостей: {e}")
+            logger.error(f"Ошибка получения брендов: {e}")
+            return []
+
+    def get_brand_by_id(self, brand_id: int) -> Optional[Dict]:
+        """Получение бренда по ID"""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT id, name, image_id, created_at 
+                    FROM brands 
+                    WHERE id = ?
+                ''', (brand_id,))
+                item = cursor.fetchone()
+                if item:
+                    return {
+                        'id': item[0],
+                        'name': item[1],
+                        'image_id': item[2] if item[2] else "",
+                        'created_at': item[3]
+                    }
+                return None
+        except Exception as e:
+            logger.error(f"Ошибка получения бренда по ID: {e}")
+            return None
+
+    def delete_brand(self, brand_id: int) -> bool:
+        """Удаление бренда (все жидкости бренда удалятся автоматически из-за CASCADE)"""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('DELETE FROM brands WHERE id = ?', (brand_id,))
+                conn.commit()
+                logger.info(f"Бренд {brand_id} удален")
+                return True
+        except Exception as e:
+            logger.error(f"Ошибка удаления бренда: {e}")
+            return False
+
+    # ===== Функции для жидкостей =====
+
+    def add_liquid(self, brand_id: int, name: str, flavor: str, strength: str, price: int) -> Optional[int]:
+        """Добавление жидкости"""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO liquids (brand_id, name, flavor, strength, price)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (brand_id, name, flavor, strength, price))
+                conn.commit()
+                liquid_id = cursor.lastrowid
+                logger.info(f"Жидкость добавлена с ID: {liquid_id}, цена: {price}₽")
+                return liquid_id
+        except Exception as e:
+            logger.error(f"Ошибка добавления жидкости: {e}")
+            return None
+
+    def get_liquids_by_brand(self, brand_id: int) -> List[Dict]:
+        """Получение всех жидкостей бренда"""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT id, brand_id, name, flavor, strength, price, created_at 
+                    FROM liquids 
+                    WHERE brand_id = ?
+                    ORDER BY name ASC
+                ''', (brand_id,))
+                items = cursor.fetchall()
+                return [
+                    {
+                        'id': item[0],
+                        'brand_id': item[1],
+                        'name': item[2],
+                        'flavor': item[3],
+                        'strength': item[4],
+                        'price': item[5],
+                        'created_at': item[6]
+                    }
+                    for item in items
+                ]
+        except Exception as e:
+            logger.error(f"Ошибка получения жидкостей бренда: {e}")
             return []
 
     def get_liquid_by_id(self, liquid_id: int) -> Optional[Dict]:
@@ -109,21 +200,24 @@ class Database:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute('''
-                    SELECT id, name, flavor, strength, volume, price, image_id, created_at 
-                    FROM liquids 
-                    WHERE id = ?
+                    SELECT l.id, l.brand_id, l.name, l.flavor, l.strength, l.price, l.created_at,
+                           b.name as brand_name, b.image_id as brand_image
+                    FROM liquids l
+                    JOIN brands b ON l.brand_id = b.id
+                    WHERE l.id = ?
                 ''', (liquid_id,))
                 item = cursor.fetchone()
                 if item:
                     return {
                         'id': item[0],
-                        'name': item[1],
-                        'flavor': item[2],
-                        'strength': item[3],
-                        'volume': item[4],
+                        'brand_id': item[1],
+                        'name': item[2],
+                        'flavor': item[3],
+                        'strength': item[4],
                         'price': item[5],
-                        'image_id': item[6] if item[6] else "",
-                        'created_at': item[7]
+                        'created_at': item[6],
+                        'brand_name': item[7],
+                        'brand_image': item[8] if item[8] else ""
                     }
                 return None
         except Exception as e:

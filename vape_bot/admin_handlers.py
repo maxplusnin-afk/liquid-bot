@@ -8,11 +8,12 @@ from keyboards import (
     get_admin_keyboard,
     get_user_keyboard,
     get_cancel_keyboard,
-    get_admin_liquids_keyboard
+    get_admin_brands_keyboard,
+    get_back_to_admin_keyboard
 )
-from states import LiquidStates
+from states import BrandStates, LiquidStates
 import logging
-from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
+from aiogram.exceptions import TelegramBadRequest
 
 router = Router()
 db = Database()
@@ -39,14 +40,199 @@ async def cmd_admin(message: Message):
     )
 
 
-@router.message(F.text == "📦 Добавить жидкость")
+# ========== УПРАВЛЕНИЕ БРЕНДАМИ ==========
+
+@router.message(F.text == "🏭 Добавить бренд")
+async def add_brand_start(message: Message, state: FSMContext):
+    """Начало добавления бренда"""
+    if not is_admin(message.from_user.id):
+        return
+
+    await state.set_state(BrandStates.name)
+    await message.answer(
+        "📝 Введите **название** бренда:",
+        reply_markup=get_cancel_keyboard(),
+        parse_mode="Markdown"
+    )
+
+
+@router.message(BrandStates.name)
+async def process_brand_name(message: Message, state: FSMContext):
+    """Обработка названия бренда"""
+    if message.text == "❌ Отмена":
+        await state.clear()
+        await message.answer("❌ Добавление отменено", reply_markup=get_admin_keyboard())
+        return
+
+    await state.update_data(name=message.text)
+    await state.set_state(BrandStates.image)
+    await message.answer(
+        "🖼 Отправьте **фото** для бренда (одно фото для всех жидкостей этого бренда):",
+        parse_mode="Markdown"
+    )
+
+
+@router.message(BrandStates.image)
+async def process_brand_image(message: Message, state: FSMContext):
+    """Обработка изображения бренда"""
+    if message.text == "❌ Отмена":
+        await state.clear()
+        await message.answer("❌ Добавление отменено", reply_markup=get_admin_keyboard())
+        return
+
+    if not message.photo:
+        await message.answer("❌ Пожалуйста, отправьте фото для бренда")
+        return
+
+    image_id = message.photo[-1].file_id
+    data = await state.get_data()
+
+    brand_id = db.add_brand(
+        name=data['name'],
+        image_id=image_id
+    )
+
+    if brand_id:
+        await message.answer_photo(
+            photo=image_id,
+            caption=f"✅ **Бренд успешно добавлен!**\n\n🏭 **Название:** {data['name']}",
+            reply_markup=get_admin_keyboard(),
+            parse_mode="Markdown"
+        )
+    else:
+        await message.answer(
+            "❌ Ошибка при добавлении бренда (возможно, такое название уже существует)",
+            reply_markup=get_admin_keyboard()
+        )
+
+    await state.clear()
+
+
+@router.message(F.text == "📋 Список брендов")
+async def list_brands(message: Message):
+    """Просмотр всех брендов (админ)"""
+    if not is_admin(message.from_user.id):
+        return
+
+    brands = db.get_all_brands()
+
+    if not brands:
+        await message.answer("📭 Брендов пока нет")
+        return
+
+    await message.answer(f"📋 **Всего брендов: {len(brands)}**", parse_mode="Markdown")
+
+    for brand in brands:
+        liquids = db.get_liquids_by_brand(brand['id'])
+        text = (
+            f"🏭 **ID:** {brand['id']}\n"
+            f"🏷 **Название:** {brand['name']}\n"
+            f"🍼 **Количество жидкостей:** {len(liquids)}\n"
+        )
+
+        if liquids:
+            text += "\n**Жидкости:**\n"
+            for liquid in liquids:
+                text += f"• {liquid['name']} - {liquid['flavor']} ({liquid['strength']} mg) - {liquid['price']}₽\n"
+
+        try:
+            if brand['image_id']:
+                await message.answer_photo(
+                    photo=brand['image_id'],
+                    caption=text,
+                    parse_mode="Markdown"
+                )
+            else:
+                await message.answer(text, parse_mode="Markdown")
+        except TelegramBadRequest as e:
+            logger.error(f"Ошибка отправки бренда {brand['id']}: {e}")
+            await message.answer(text + "\n❌ Ошибка загрузки изображения", parse_mode="Markdown")
+
+
+@router.message(F.text == "🗑 Удалить бренд")
+async def delete_brand_menu(message: Message):
+    """Меню удаления бренда"""
+    if not is_admin(message.from_user.id):
+        return
+
+    brands = db.get_all_brands()
+
+    if not brands:
+        await message.answer("📭 Нет брендов для удаления")
+        return
+
+    await message.answer(
+        "Выберите бренд для удаления (все его жидкости будут удалены):",
+        reply_markup=get_admin_brands_keyboard(brands)
+    )
+
+
+@router.callback_query(lambda c: c.data.startswith('admin_delete_brand_'))
+async def delete_brand(callback: CallbackQuery):
+    """Удаление бренда"""
+    await callback.answer()
+
+    if not is_admin(callback.from_user.id):
+        await callback.message.edit_text("⛔ Доступ запрещен")
+        return
+
+    try:
+        brand_id = int(callback.data.replace('admin_delete_brand_', ''))
+
+        if db.delete_brand(brand_id):
+            await callback.message.edit_text(f"✅ Бренд #{brand_id} и все его жидкости успешно удалены")
+        else:
+            await callback.message.edit_text(f"❌ Ошибка при удалении бренда #{brand_id}")
+    except ValueError:
+        await callback.message.edit_text("❌ Некорректный ID")
+    except Exception as e:
+        logger.error(f"Ошибка удаления бренда: {e}")
+        await callback.message.edit_text("❌ Ошибка при удалении")
+
+
+# ========== УПРАВЛЕНИЕ ЖИДКОСТЯМИ ==========
+
+@router.message(F.text == "🍼 Добавить жидкость")
 async def add_liquid_start(message: Message, state: FSMContext):
     """Начало добавления жидкости"""
     if not is_admin(message.from_user.id):
         return
 
-    await state.set_state(LiquidStates.name)
+    brands = db.get_all_brands()
+
+    if not brands:
+        await message.answer(
+            "❌ Сначала добавьте бренд!",
+            reply_markup=get_admin_keyboard()
+        )
+        return
+
+    # Создаем клавиатуру с брендами
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=f"🏭 {brand['name']}", callback_data=f"select_brand_{brand['id']}")]
+            for brand in brands
+        ]
+    )
+
     await message.answer(
+        "Выберите бренд для жидкости:",
+        reply_markup=keyboard
+    )
+    await state.set_state(LiquidStates.brand_id)
+
+
+@router.callback_query(lambda c: c.data.startswith('select_brand_'))
+async def process_brand_selection(callback: CallbackQuery, state: FSMContext):
+    """Обработка выбора бренда"""
+    await callback.answer()
+
+    brand_id = int(callback.data.replace('select_brand_', ''))
+    await state.update_data(brand_id=brand_id)
+    await state.set_state(LiquidStates.name)
+
+    await callback.message.delete()
+    await callback.message.answer(
         "📝 Введите **название** жидкости:",
         reply_markup=get_cancel_keyboard(),
         parse_mode="Markdown"
@@ -54,8 +240,8 @@ async def add_liquid_start(message: Message, state: FSMContext):
 
 
 @router.message(LiquidStates.name)
-async def process_name(message: Message, state: FSMContext):
-    """Обработка названия"""
+async def process_liquid_name(message: Message, state: FSMContext):
+    """Обработка названия жидкости"""
     if message.text == "❌ Отмена":
         await state.clear()
         await message.answer("❌ Добавление отменено", reply_markup=get_admin_keyboard())
@@ -67,7 +253,7 @@ async def process_name(message: Message, state: FSMContext):
 
 
 @router.message(LiquidStates.flavor)
-async def process_flavor(message: Message, state: FSMContext):
+async def process_liquid_flavor(message: Message, state: FSMContext):
     """Обработка вкуса"""
     if message.text == "❌ Отмена":
         await state.clear()
@@ -80,7 +266,7 @@ async def process_flavor(message: Message, state: FSMContext):
 
 
 @router.message(LiquidStates.strength)
-async def process_strength(message: Message, state: FSMContext):
+async def process_liquid_strength(message: Message, state: FSMContext):
     """Обработка крепости"""
     if message.text == "❌ Отмена":
         await state.clear()
@@ -88,25 +274,12 @@ async def process_strength(message: Message, state: FSMContext):
         return
 
     await state.update_data(strength=message.text)
-    await state.set_state(LiquidStates.volume)
-    await message.answer("🧪 Введите **объем** (в ml):", parse_mode="Markdown")
-
-
-@router.message(LiquidStates.volume)
-async def process_volume(message: Message, state: FSMContext):
-    """Обработка объема"""
-    if message.text == "❌ Отмена":
-        await state.clear()
-        await message.answer("❌ Добавление отменено", reply_markup=get_admin_keyboard())
-        return
-
-    await state.update_data(volume=message.text)
     await state.set_state(LiquidStates.price)
     await message.answer("💰 Введите **цену** (в рублях):", parse_mode="Markdown")
 
 
 @router.message(LiquidStates.price)
-async def process_price(message: Message, state: FSMContext):
+async def process_liquid_price(message: Message, state: FSMContext):
     """Обработка цены"""
     if message.text == "❌ Отмена":
         await state.clear()
@@ -118,122 +291,43 @@ async def process_price(message: Message, state: FSMContext):
         if price <= 0:
             await message.answer("❌ Цена должна быть больше 0")
             return
-        await state.update_data(price=price)
-        await state.set_state(LiquidStates.image)
-        await message.answer("🖼 Отправьте **фото** жидкости (или отправьте 'нет'):", parse_mode="Markdown")
-    except ValueError:
-        await message.answer("❌ Введите корректное число")
 
+        data = await state.get_data()
 
-@router.message(LiquidStates.image)
-async def process_image(message: Message, state: FSMContext):
-    """Обработка изображения"""
-    if message.text == "❌ Отмена":
-        await state.clear()
-        await message.answer("❌ Добавление отменено", reply_markup=get_admin_keyboard())
-        return
+        liquid_id = db.add_liquid(
+            brand_id=data['brand_id'],
+            name=data['name'],
+            flavor=data['flavor'],
+            strength=data['strength'],
+            price=price
+        )
 
-    image_id_value = ""
-    if message.photo:
-        image_id_value = message.photo[-1].file_id
-        await message.answer("✅ Фото получено, сохраняю товар...")
-    elif message.text and message.text.lower() == 'нет':
-        image_id_value = ""
-        await message.answer("📝 Товар будет сохранен без фото")
-    else:
-        await message.answer("❌ Пожалуйста, отправьте фото или напишите 'нет'")
-        return
+        if liquid_id:
+            # Получаем информацию о бренде
+            brand = db.get_brand_by_id(data['brand_id'])
 
-    data = await state.get_data()
-
-    # Сохраняем жидкость
-    liquid_id = db.add_liquid(
-        name=data['name'],
-        flavor=data['flavor'],
-        strength=data['strength'],
-        volume=data['volume'],
-        price=data['price'],
-        image_id=image_id_value
-    )
-
-    if liquid_id:
-        if image_id_value:
-            text = (
+            await message.answer(
                 f"✅ **Жидкость успешно добавлена!**\n\n"
-                f"🆔 ID: {liquid_id}\n"
-                f"🏷 Название: {data['name']}\n"
-                f"👃 Вкус: {data['flavor']}\n"
-                f"💪 Крепость: {data['strength']} mg\n"
-                f"🧪 Объем: {data['volume']} ml\n"
-                f"💰 Цена: {data['price']}₽"
-            )
-            await message.answer_photo(
-                photo=image_id_value,
-                caption=text,
+                f"🏭 **Бренд:** {brand['name'] if brand else 'Неизвестно'}\n"
+                f"🍼 **Название:** {data['name']}\n"
+                f"👃 **Вкус:** {data['flavor']}\n"
+                f"💪 **Крепость:** {data['strength']} mg\n"
+                f"💰 **Цена:** {price}₽",
                 reply_markup=get_admin_keyboard(),
                 parse_mode="Markdown"
             )
         else:
             await message.answer(
-                f"✅ **Жидкость успешно добавлена!**\n\n"
-                f"🆔 ID: {liquid_id}\n"
-                f"🏷 Название: {data['name']}\n"
-                f"👃 Вкус: {data['flavor']}\n"
-                f"💪 Крепость: {data['strength']} mg\n"
-                f"🧪 Объем: {data['volume']} ml\n"
-                f"💰 Цена: {data['price']}₽",
-                reply_markup=get_admin_keyboard(),
-                parse_mode="Markdown"
+                "❌ Ошибка при добавлении жидкости",
+                reply_markup=get_admin_keyboard()
             )
-    else:
-        await message.answer(
-            "❌ Ошибка при добавлении жидкости",
-            reply_markup=get_admin_keyboard()
-        )
 
-    await state.clear()
+        await state.clear()
+    except ValueError:
+        await message.answer("❌ Введите корректное число")
 
 
-@router.message(F.text == "📋 Список жидкостей")
-async def list_liquids(message: Message):
-    """Просмотр всех жидкостей (админ)"""
-    if not is_admin(message.from_user.id):
-        return
-
-    liquids = db.get_all_liquids()
-
-    if not liquids:
-        await message.answer("📭 Жидкостей пока нет")
-        return
-
-    await message.answer(f"📋 **Всего жидкостей: {len(liquids)}**", parse_mode="Markdown")
-
-    for liquid in liquids:
-        text = (
-            f"🆔 **ID:** {liquid['id']}\n"
-            f"🏷 **Название:** {liquid['name']}\n"
-            f"👃 **Вкус:** {liquid['flavor']}\n"
-            f"💪 **Крепость:** {liquid['strength']} mg\n"
-            f"🧪 **Объем:** {liquid['volume']} ml\n"
-            f"💰 **Цена:** {liquid['price']}₽\n"
-        )
-
-        if liquid['created_at']:
-            text += f"📅 **Добавлен:** {liquid['created_at'][:16]}\n"
-
-        try:
-            if liquid['image_id']:
-                await message.answer_photo(
-                    photo=liquid['image_id'],
-                    caption=text,
-                    parse_mode="Markdown"
-                )
-            else:
-                await message.answer(text, parse_mode="Markdown")
-        except (TelegramBadRequest, TelegramForbiddenError) as e:
-            logger.error(f"Ошибка отправки жидкости {liquid['id']}: {e}")
-            await message.answer(text + "\n❌ Ошибка загрузки изображения", parse_mode="Markdown")
-
+# ========== ЗАЯВКИ НА ПОКУПКУ ==========
 
 @router.message(F.text == "📊 Заявки на покупку")
 async def show_purchase_requests(message: Message):
@@ -295,46 +389,7 @@ async def mark_request_done(callback: CallbackQuery):
         await callback.message.edit_text("❌ Ошибка")
 
 
-@router.message(F.text == "🗑 Удалить жидкость")
-async def delete_liquid_menu(message: Message):
-    """Меню удаления жидкости"""
-    if not is_admin(message.from_user.id):
-        return
-
-    liquids = db.get_all_liquids()
-
-    if not liquids:
-        await message.answer("📭 Нет жидкостей для удаления")
-        return
-
-    await message.answer(
-        "Выберите жидкость для удаления:",
-        reply_markup=get_admin_liquids_keyboard(liquids)
-    )
-
-
-@router.callback_query(lambda c: c.data.startswith('admin_delete_'))
-async def delete_liquid(callback: CallbackQuery):
-    """Удаление жидкости"""
-    await callback.answer()
-
-    if not is_admin(callback.from_user.id):
-        await callback.message.edit_text("⛔ Доступ запрещен")
-        return
-
-    try:
-        liquid_id = int(callback.data.replace('admin_delete_', ''))
-
-        if db.delete_liquid(liquid_id):
-            await callback.message.edit_text(f"✅ Жидкость #{liquid_id} успешно удалена")
-        else:
-            await callback.message.edit_text(f"❌ Ошибка при удалении жидкости #{liquid_id}")
-    except ValueError:
-        await callback.message.edit_text("❌ Некорректный ID")
-    except Exception as e:
-        logger.error(f"Ошибка удаления жидкости: {e}")
-        await callback.message.edit_text("❌ Ошибка при удалении")
-
+# ========== НАВИГАЦИЯ ==========
 
 @router.callback_query(F.data == "back_to_admin_menu")
 async def back_to_admin_menu(callback: CallbackQuery):
