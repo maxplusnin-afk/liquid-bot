@@ -9,7 +9,6 @@ class Database:
         self.create_tables()
 
     def create_tables(self):
-        """Создание таблиц"""
         # Таблица брендов
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS brands (
@@ -58,7 +57,7 @@ class Database:
             )
             self.conn.commit()
             return self.cursor.lastrowid
-        except sqlite3.IntegrityError:
+        except:
             return None
 
     def get_all_brands(self) -> List[Dict]:

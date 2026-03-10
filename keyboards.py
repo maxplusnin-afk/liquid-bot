@@ -38,7 +38,7 @@ def get_brands_keyboard(brands: list):
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 def get_products_keyboard(products: list):
-    """Клавиатура со списком товаров бренда"""
+    """Клавиатура со списком товаров"""
     keyboard = []
     for product in products:
         keyboard.append([InlineKeyboardButton(
@@ -52,7 +52,7 @@ def get_products_keyboard(products: list):
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 def get_product_actions_keyboard(product_id: int):
-    """Клавиатура действий с товаром"""
+    """Клавиатура действий с товаром (купить/назад)"""
     keyboard = [
         [InlineKeyboardButton(text="💰 Купить", callback_data=f"buy_{product_id}")],
         [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_products")]

@@ -7,7 +7,7 @@ BOT_TOKEN = os.getenv('BOT_TOKEN')
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN не найден в .env")
 
-# ID администратора (жестко прописан для надежности)
+# ID администратора (ваш ID)
 ADMIN_IDS = [888328825]
 
 # Контакт продавца

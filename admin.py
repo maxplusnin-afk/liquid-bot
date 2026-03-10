@@ -115,7 +115,7 @@ async def admin_brand_products(callback: CallbackQuery):
             reply_markup=get_admin_products_keyboard(products, brand_id)
         )
     else:
-        # Если товаров нет, сразу показываем кнопку добавления
+        # Если товаров нет, показываем кнопку добавления
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="➕ Добавить товар", callback_data=f"add_product_{brand_id}")],
             [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_admin_brands")]
@@ -313,7 +313,7 @@ async def delete_product_confirm(callback: CallbackQuery):
     )
 
 
-@router.callback_query(F.data == "confirm_delete_product_")
+@router.callback_query(F.data.startswith('confirm_delete_product_'))
 async def confirm_delete_product(callback: CallbackQuery):
     await callback.answer()
 
