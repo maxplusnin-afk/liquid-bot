@@ -150,7 +150,7 @@ class Database:
                 'product_name': row[4],
                 'price': row[5],
                 'status': row[6],
-                'created_at': row[7]
+                'created_at': row[7]d
             }
             for row in self.cursor.fetchall()
         ]
