@@ -1,5 +1,5 @@
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from database import Database
@@ -7,6 +7,7 @@ from keyboards import *
 from config import SELLER_CONTACT, ADMIN_IDS
 from states import OrderStates
 import logging
+from aiogram.exceptions import TelegramBadRequest
 
 router = Router()
 db = Database()
@@ -49,19 +50,34 @@ async def show_products(callback: CallbackQuery):
     products = db.get_products_by_brand(brand_id)
 
     if not products:
-        await callback.message.edit_text(
-            "❌ У этого бренда пока нет товаров",
-            reply_markup=get_brands_keyboard(db.get_all_brands())
-        )
+        # Проверяем тип сообщения перед редактированием
+        if callback.message.photo:
+            await callback.message.delete()
+            await callback.message.answer(
+                "❌ У этого бренда пока нет товаров",
+                reply_markup=get_brands_keyboard(db.get_all_brands())
+            )
+        else:
+            try:
+                await callback.message.edit_text(
+                    "❌ У этого бренда пока нет товаров",
+                    reply_markup=get_brands_keyboard(db.get_all_brands())
+                )
+            except TelegramBadRequest:
+                await callback.message.delete()
+                await callback.message.answer(
+                    "❌ У этого бренда пока нет товаров",
+                    reply_markup=get_brands_keyboard(db.get_all_brands())
+                )
         return
 
     # Формируем текст со списком товаров
     text = f"🏭 **{brand['name']}**\n\n"
-    for i, p in enumerate(products, 1):
-        text += f"{i}. **{p['name']}**\n"
-        text += f"   👃 Вкус: {p['flavor']}\n"
-        text += f"   💪 Крепость: {p['strength']} mg\n"
-        text += f"   💰 Цена: {p['price']}₽\n\n"
+    for i, product in enumerate(products, 1):
+        text += f"{i}. **{product['name']}**\n"
+        text += f"   👃 Вкус: {product['flavor']}\n"
+        text += f"   💪 Крепость: {product['strength']} mg\n"
+        text += f"   💰 Цена: {product['price']}₽\n\n"
 
     # Отправляем фото бренда со списком товаров
     if callback.message.photo:
@@ -82,7 +98,15 @@ async def show_product(callback: CallbackQuery):
     product = db.get_product(product_id)
 
     if not product:
-        await callback.message.edit_caption("❌ Товар не найден")
+        if callback.message.photo:
+            await callback.message.delete()
+            await callback.message.answer("❌ Товар не найден")
+        else:
+            try:
+                await callback.message.edit_text("❌ Товар не найден")
+            except TelegramBadRequest:
+                await callback.message.delete()
+                await callback.message.answer("❌ Товар не найден")
         return
 
     text = (
@@ -93,10 +117,23 @@ async def show_product(callback: CallbackQuery):
         f"💰 Цена: {product['price']}₽"
     )
 
-    await callback.message.edit_caption(
-        caption=text,
-        reply_markup=get_product_actions_keyboard(product_id)
-    )
+    if callback.message.photo:
+        await callback.message.edit_caption(
+            caption=text,
+            reply_markup=get_product_actions_keyboard(product_id)
+        )
+    else:
+        try:
+            await callback.message.edit_text(
+                text,
+                reply_markup=get_product_actions_keyboard(product_id)
+            )
+        except TelegramBadRequest:
+            await callback.message.delete()
+            await callback.message.answer(
+                text,
+                reply_markup=get_product_actions_keyboard(product_id)
+            )
 
 
 # ===== КОРЗИНА =====
@@ -109,7 +146,15 @@ async def add_to_cart(callback: CallbackQuery):
     product = db.get_product(product_id)
 
     if not product:
-        await callback.message.edit_caption("❌ Товар не найден")
+        if callback.message.photo:
+            await callback.message.delete()
+            await callback.message.answer("❌ Товар не найден")
+        else:
+            try:
+                await callback.message.edit_text("❌ Товар не найден")
+            except TelegramBadRequest:
+                await callback.message.delete()
+                await callback.message.answer("❌ Товар не найден")
         return
 
     # Добавляем в корзину
@@ -128,13 +173,21 @@ async def add_to_cart(callback: CallbackQuery):
         f"💰 Цена: {product['price']}₽"
     )
 
-    # Добавляем кнопку для перехода в корзину
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🛒 Перейти в корзину", callback_data="go_to_cart")],
         [InlineKeyboardButton(text="◀️ Продолжить покупки", callback_data="back_to_brands")]
     ])
 
-    await callback.message.edit_caption(caption=text, reply_markup=keyboard)
+    if callback.message.photo:
+        await callback.message.edit_caption(caption=text, reply_markup=keyboard)
+    else:
+        try:
+            await callback.message.edit_text(text, reply_markup=keyboard)
+        except TelegramBadRequest:
+            await callback.message.delete()
+            await callback.message.answer(text, reply_markup=keyboard)
 
 
 @router.message(F.text == "🛒 Корзина")
@@ -175,10 +228,25 @@ async def remove_from_cart(callback: CallbackQuery):
     cart = db.get_cart(callback.from_user.id)
 
     if not cart['items']:
-        await callback.message.edit_text(
-            "🛒 **Корзина пуста**\n\nДобавьте товары из каталога.",
-            reply_markup=get_main_keyboard()
-        )
+        # Проверяем тип сообщения
+        if callback.message.photo:
+            await callback.message.delete()
+            await callback.message.answer(
+                "🛒 **Корзина пуста**\n\nДобавьте товары из каталога.",
+                reply_markup=get_main_keyboard()
+            )
+        else:
+            try:
+                await callback.message.edit_text(
+                    "🛒 **Корзина пуста**\n\nДобавьте товары из каталога.",
+                    reply_markup=get_main_keyboard()
+                )
+            except TelegramBadRequest:
+                await callback.message.delete()
+                await callback.message.answer(
+                    "🛒 **Корзина пуста**\n\nДобавьте товары из каталога.",
+                    reply_markup=get_main_keyboard()
+                )
         return
 
     text = "🛒 **Ваша корзина:**\n\n"
@@ -190,10 +258,15 @@ async def remove_from_cart(callback: CallbackQuery):
 
     text += f"💰 **ИТОГО: {cart['total']}₽**"
 
-    await callback.message.edit_text(
-        text,
-        reply_markup=get_cart_keyboard(cart['items'])
-    )
+    if callback.message.photo:
+        await callback.message.delete()
+        await callback.message.answer(text, reply_markup=get_cart_keyboard(cart['items']))
+    else:
+        try:
+            await callback.message.edit_text(text, reply_markup=get_cart_keyboard(cart['items']))
+        except TelegramBadRequest:
+            await callback.message.delete()
+            await callback.message.answer(text, reply_markup=get_cart_keyboard(cart['items']))
 
 
 @router.callback_query(F.data == "clear_cart")
@@ -202,10 +275,24 @@ async def clear_cart(callback: CallbackQuery):
 
     db.clear_cart(callback.from_user.id)
 
-    await callback.message.edit_text(
-        "🗑 **Корзина очищена**\n\nДобавьте товары из каталога.",
-        reply_markup=get_main_keyboard()
-    )
+    if callback.message.photo:
+        await callback.message.delete()
+        await callback.message.answer(
+            "🗑 **Корзина очищена**\n\nДобавьте товары из каталога.",
+            reply_markup=get_main_keyboard()
+        )
+    else:
+        try:
+            await callback.message.edit_text(
+                "🗑 **Корзина очищена**\n\nДобавьте товары из каталога.",
+                reply_markup=get_main_keyboard()
+            )
+        except TelegramBadRequest:
+            await callback.message.delete()
+            await callback.message.answer(
+                "🗑 **Корзина очищена**\n\nДобавьте товары из каталога.",
+                reply_markup=get_main_keyboard()
+            )
 
 
 @router.callback_query(F.data == "go_to_cart")
@@ -215,10 +302,23 @@ async def go_to_cart(callback: CallbackQuery):
     cart = db.get_cart(callback.from_user.id)
 
     if not cart['items']:
-        await callback.message.edit_caption(
-            caption="🛒 **Корзина пуста**",
-            reply_markup=get_brands_keyboard(db.get_all_brands())
-        )
+        if callback.message.photo:
+            await callback.message.edit_caption(
+                caption="🛒 **Корзина пуста**",
+                reply_markup=get_brands_keyboard(db.get_all_brands())
+            )
+        else:
+            try:
+                await callback.message.edit_text(
+                    "🛒 **Корзина пуста**",
+                    reply_markup=get_brands_keyboard(db.get_all_brands())
+                )
+            except TelegramBadRequest:
+                await callback.message.delete()
+                await callback.message.answer(
+                    "🛒 **Корзина пуста**",
+                    reply_markup=get_brands_keyboard(db.get_all_brands())
+                )
         return
 
     text = "🛒 **Ваша корзина:**\n\n"
@@ -230,10 +330,23 @@ async def go_to_cart(callback: CallbackQuery):
 
     text += f"💰 **ИТОГО: {cart['total']}₽**"
 
-    await callback.message.edit_caption(
-        caption=text,
-        reply_markup=get_cart_keyboard(cart['items'])
-    )
+    if callback.message.photo:
+        await callback.message.edit_caption(
+            caption=text,
+            reply_markup=get_cart_keyboard(cart['items'])
+        )
+    else:
+        try:
+            await callback.message.edit_text(
+                text,
+                reply_markup=get_cart_keyboard(cart['items'])
+            )
+        except TelegramBadRequest:
+            await callback.message.delete()
+            await callback.message.answer(
+                text,
+                reply_markup=get_cart_keyboard(cart['items'])
+            )
 
 
 # ===== ОФОРМЛЕНИЕ ЗАКАЗА =====
@@ -245,26 +358,53 @@ async def checkout_start(callback: CallbackQuery, state: FSMContext):
     cart = db.get_cart(callback.from_user.id)
 
     if not cart['items']:
-        await callback.message.edit_text(
-            "❌ Корзина пуста",
-            reply_markup=get_main_keyboard()
-        )
+        if callback.message.photo:
+            await callback.message.delete()
+            await callback.message.answer(
+                "❌ Корзина пуста",
+                reply_markup=get_main_keyboard()
+            )
+        else:
+            try:
+                await callback.message.edit_text(
+                    "❌ Корзина пуста",
+                    reply_markup=get_main_keyboard()
+                )
+            except TelegramBadRequest:
+                await callback.message.delete()
+                await callback.message.answer(
+                    "❌ Корзина пуста",
+                    reply_markup=get_main_keyboard()
+                )
         return
 
     # Сохраняем данные корзины в состояние
     await state.update_data(cart=cart)
     await state.set_state(OrderStates.username)
 
-    await callback.message.edit_text(
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+    text = (
         "📝 **Оформление заказа**\n\n"
         f"💰 Сумма заказа: {cart['total']}₽\n\n"
         "✏️ **Пожалуйста, напишите ваш Telegram username**\n"
         "(например: @username)\n\n"
-        "Это нужно, чтобы продавец мог с вами связаться.",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="◀️ Вернуться в корзину", callback_data="back_to_cart")]
-        ])
+        "Это нужно, чтобы продавец мог с вами связаться."
     )
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="◀️ Вернуться в корзину", callback_data="back_to_cart")]
+    ])
+
+    if callback.message.photo:
+        await callback.message.delete()
+        await callback.message.answer(text, reply_markup=keyboard)
+    else:
+        try:
+            await callback.message.edit_text(text, reply_markup=keyboard)
+        except TelegramBadRequest:
+            await callback.message.delete()
+            await callback.message.answer(text, reply_markup=keyboard)
 
 
 @router.message(OrderStates.username)
@@ -353,10 +493,25 @@ async def back_to_brands(callback: CallbackQuery, state: FSMContext):
     await state.clear()
 
     brands = db.get_all_brands()
-    await callback.message.edit_caption(
-        caption="Выберите бренд:",
-        reply_markup=get_brands_keyboard(brands)
-    )
+
+    if callback.message.photo:
+        await callback.message.delete()
+        await callback.message.answer(
+            "Выберите бренд:",
+            reply_markup=get_brands_keyboard(brands)
+        )
+    else:
+        try:
+            await callback.message.edit_text(
+                "Выберите бренд:",
+                reply_markup=get_brands_keyboard(brands)
+            )
+        except TelegramBadRequest:
+            await callback.message.delete()
+            await callback.message.answer(
+                "Выберите бренд:",
+                reply_markup=get_brands_keyboard(brands)
+            )
 
 
 @router.callback_query(F.data == "back_to_products")
@@ -366,10 +521,25 @@ async def back_to_products(callback: CallbackQuery, state: FSMContext):
 
     # Возвращаемся к брендам
     brands = db.get_all_brands()
-    await callback.message.edit_caption(
-        caption="Выберите бренд:",
-        reply_markup=get_brands_keyboard(brands)
-    )
+
+    if callback.message.photo:
+        await callback.message.delete()
+        await callback.message.answer(
+            "Выберите бренд:",
+            reply_markup=get_brands_keyboard(brands)
+        )
+    else:
+        try:
+            await callback.message.edit_text(
+                "Выберите бренд:",
+                reply_markup=get_brands_keyboard(brands)
+            )
+        except TelegramBadRequest:
+            await callback.message.delete()
+            await callback.message.answer(
+                "Выберите бренд:",
+                reply_markup=get_brands_keyboard(brands)
+            )
 
 
 @router.callback_query(F.data == "back_to_cart")
@@ -380,10 +550,24 @@ async def back_to_cart(callback: CallbackQuery, state: FSMContext):
     cart = db.get_cart(callback.from_user.id)
 
     if not cart['items']:
-        await callback.message.edit_text(
-            "🛒 **Корзина пуста**",
-            reply_markup=get_main_keyboard()
-        )
+        if callback.message.photo:
+            await callback.message.delete()
+            await callback.message.answer(
+                "🛒 **Корзина пуста**",
+                reply_markup=get_main_keyboard()
+            )
+        else:
+            try:
+                await callback.message.edit_text(
+                    "🛒 **Корзина пуста**",
+                    reply_markup=get_main_keyboard()
+                )
+            except TelegramBadRequest:
+                await callback.message.delete()
+                await callback.message.answer(
+                    "🛒 **Корзина пуста**",
+                    reply_markup=get_main_keyboard()
+                )
         return
 
     text = "🛒 **Ваша корзина:**\n\n"
@@ -395,10 +579,15 @@ async def back_to_cart(callback: CallbackQuery, state: FSMContext):
 
     text += f"💰 **ИТОГО: {cart['total']}₽**"
 
-    await callback.message.edit_text(
-        text,
-        reply_markup=get_cart_keyboard(cart['items'])
-    )
+    if callback.message.photo:
+        await callback.message.delete()
+        await callback.message.answer(text, reply_markup=get_cart_keyboard(cart['items']))
+    else:
+        try:
+            await callback.message.edit_text(text, reply_markup=get_cart_keyboard(cart['items']))
+        except TelegramBadRequest:
+            await callback.message.delete()
+            await callback.message.answer(text, reply_markup=get_cart_keyboard(cart['items']))
 
 
 @router.message(F.text == "◀️ Назад")
