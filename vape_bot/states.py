@@ -1,19 +1,18 @@
 from aiogram.fsm.state import State, StatesGroup
 
 class BrandStates(StatesGroup):
-    """Состояния для добавления бренда"""
     name = State()
-    image = State()
+    photo = State()
 
-class LiquidStates(StatesGroup):
-    """Состояния для добавления жидкости"""
+class ProductStates(StatesGroup):
     brand_id = State()
     name = State()
     flavor = State()
     strength = State()
     price = State()
+    edit_id = State()
+    edit_field = State()
+    edit_value = State()
 
-class PurchaseStates(StatesGroup):
-    """Состояния для покупки"""
-    waiting_for_username = State()
-    confirm_purchase = State()
+class OrderStates(StatesGroup):
+    username = State()

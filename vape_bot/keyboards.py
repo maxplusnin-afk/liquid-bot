@@ -1,81 +1,126 @@
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+# ===== ОСНОВНЫЕ КЛАВИАТУРЫ =====
+
+def get_main_keyboard():
+    """Главное меню для пользователя"""
+    buttons = [
+        [KeyboardButton(text="📋 Каталог")],
+        [KeyboardButton(text="ℹ️ Информация для покупки")]
+    ]
+    return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
 
 def get_admin_keyboard():
-    """Клавиатура для админа"""
+    """Главное меню для админа"""
     buttons = [
-        [KeyboardButton(text="🏭 Добавить бренд")],
-        [KeyboardButton(text="🍼 Добавить жидкость")],
-        [KeyboardButton(text="📋 Список брендов")],
-        [KeyboardButton(text="📊 Заявки на покупку")],
-        [KeyboardButton(text="🗑 Удалить бренд")],
-        [KeyboardButton(text="🏠 Главное меню")]
+        [KeyboardButton(text="➕ Добавить бренд")],
+        [KeyboardButton(text="📝 Управление товарами")],
+        [KeyboardButton(text="📦 Заказы")],
+        [KeyboardButton(text="🏠 Выйти в пользовательское меню")]
     ]
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
 
-def get_user_keyboard():
-    """Клавиатура для пользователя"""
-    buttons = [
-        [KeyboardButton(text="🍼 Каталог жидкостей")],
-        [KeyboardButton(text="📞 Информация для покупки")],
-        [KeyboardButton(text="🏠 Главное меню")]
-    ]
+def get_back_keyboard():
+    """Кнопка назад"""
+    buttons = [[KeyboardButton(text="◀️ Назад")]]
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
 
-def get_cancel_keyboard():
-    """Клавиатура отмены"""
-    buttons = [[KeyboardButton(text="❌ Отмена")]]
-    return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
+# ===== INLINE КЛАВИАТУРЫ =====
 
 def get_brands_keyboard(brands: list):
     """Клавиатура со списком брендов"""
-    builder = InlineKeyboardBuilder()
+    keyboard = []
     for brand in brands:
-        builder.button(
+        keyboard.append([InlineKeyboardButton(
             text=f"🏭 {brand['name']}",
             callback_data=f"brand_{brand['id']}"
-        )
-    builder.adjust(1)
-    return builder.as_markup()
+        )])
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+def get_products_keyboard(products: list):
+    """Клавиатура со списком товаров бренда"""
+    keyboard = []
+    for product in products:
+        keyboard.append([InlineKeyboardButton(
+            text=f"{product['name']} - {product['price']}₽",
+            callback_data=f"product_{product['id']}"
+        )])
+    keyboard.append([InlineKeyboardButton(
+        text="◀️ Назад к брендам",
+        callback_data="back_to_brands"
+    )])
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+def get_product_actions_keyboard(product_id: int):
+    """Клавиатура действий с товаром"""
+    keyboard = [
+        [InlineKeyboardButton(text="💰 Купить", callback_data=f"buy_{product_id}")],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_products")]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 def get_admin_brands_keyboard(brands: list):
-    """Клавиатура со списком брендов для админа (для удаления)"""
-    builder = InlineKeyboardBuilder()
+    """Клавиатура брендов для админа"""
+    keyboard = []
     for brand in brands:
-        builder.button(
-            text=f"❌ {brand['name']}",
-            callback_data=f"admin_delete_brand_{brand['id']}"
-        )
-    builder.button(text="◀️ Назад", callback_data="back_to_admin_menu")
-    builder.adjust(1)
-    return builder.as_markup()
+        keyboard.append([InlineKeyboardButton(
+            text=f"📝 {brand['name']}",
+            callback_data=f"admin_brand_{brand['id']}"
+        )])
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
-def get_brand_liquids_keyboard(liquids: list, brand_id: int):
-    """Клавиатура с жидкостями бренда для покупки"""
-    builder = InlineKeyboardBuilder()
-    for liquid in liquids:
-        builder.button(
-            text=f"🍼 {liquid['name']} - {liquid['flavor']} ({liquid['strength']} mg) - {liquid['price']}₽",
-            callback_data=f"buy_liquid_{liquid['id']}"
-        )
-    builder.button(text="◀️ Назад к брендам", callback_data="back_to_brands")
-    builder.adjust(1)
-    return builder.as_markup()
+def get_admin_products_keyboard(products: list, brand_id: int):
+    """Клавиатура товаров для админа"""
+    keyboard = []
+    for product in products:
+        keyboard.append([InlineKeyboardButton(
+            text=f"✏️ {product['name']} - {product['price']}₽",
+            callback_data=f"admin_product_{product['id']}"
+        )])
+    keyboard.append([InlineKeyboardButton(
+        text="➕ Добавить товар",
+        callback_data=f"add_product_{brand_id}"
+    )])
+    keyboard.append([InlineKeyboardButton(
+        text="◀️ Назад",
+        callback_data="back_to_admin_brands"
+    )])
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
-def get_confirm_purchase_keyboard(liquid_id: int):
-    """Клавиатура подтверждения покупки"""
-    buttons = [
-        [InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"confirm_buy_{liquid_id}")],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data=f"cancel_buy_{liquid_id}")]
+def get_admin_product_actions(product_id: int):
+    """Клавиатура действий с товаром для админа"""
+    keyboard = [
+        [InlineKeyboardButton(text="✏️ Редактировать", callback_data=f"edit_{product_id}")],
+        [InlineKeyboardButton(text="❌ Удалить", callback_data=f"delete_{product_id}")],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_admin_products")]
     ]
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
-def get_back_to_admin_keyboard():
-    """Клавиатура возврата в админ-меню"""
-    buttons = [[InlineKeyboardButton(text="◀️ Назад в админ-меню", callback_data="back_to_admin_menu")]]
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
+def get_confirm_keyboard(action: str, item_id: int):
+    """Клавиатура подтверждения"""
+    keyboard = [
+        [
+            InlineKeyboardButton(text="✅ Да", callback_data=f"confirm_{action}_{item_id}"),
+            InlineKeyboardButton(text="❌ Нет", callback_data=f"cancel_{action}")
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
-def get_back_to_catalog_keyboard():
-    """Клавиатура возврата к брендам"""
-    buttons = [[InlineKeyboardButton(text="◀️ Назад к брендам", callback_data="back_to_brands")]]
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
+def get_orders_keyboard(orders: list):
+    """Клавиатура заказов для админа"""
+    keyboard = []
+    for order in orders[:10]:
+        status = "✅" if order['status'] == 'выполнен' else "⏳"
+        keyboard.append([InlineKeyboardButton(
+            text=f"{status} Заказ #{order['id']} - {order['product_name']}",
+            callback_data=f"order_{order['id']}"
+        )])
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+def get_order_actions_keyboard(order_id: int):
+    """Клавиатура действий с заказом"""
+    keyboard = [
+        [InlineKeyboardButton(text="✅ Отметить выполненным", callback_data=f"complete_{order_id}")],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_orders")]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)

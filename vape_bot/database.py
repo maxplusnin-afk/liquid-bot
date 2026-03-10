@@ -1,308 +1,161 @@
 import sqlite3
 from typing import List, Dict, Optional
-import logging
-
-logger = logging.getLogger(__name__)
 
 
 class Database:
-    def __init__(self, db_name: str = "catalog.db"):
-        self.db_name = db_name
-        self.init_db()
+    def __init__(self):
+        self.conn = sqlite3.connect('shop.db', check_same_thread=False)
+        self.cursor = self.conn.cursor()
+        self.create_tables()
 
-    def _get_connection(self):
-        """Получение соединения с БД"""
-        return sqlite3.connect(self.db_name)
+    def create_tables(self):
+        """Создание таблиц"""
+        # Таблица брендов
+        self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS brands (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                photo_id TEXT
+            )
+        ''')
 
-    def init_db(self):
-        """Инициализация таблиц"""
+        # Таблица товаров
+        self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS products (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                brand_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                flavor TEXT NOT NULL,
+                strength TEXT NOT NULL,
+                price INTEGER NOT NULL,
+                FOREIGN KEY (brand_id) REFERENCES brands (id) ON DELETE CASCADE
+            )
+        ''')
+
+        # Таблица заказов
+        self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS orders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                username TEXT,
+                product_id INTEGER NOT NULL,
+                product_name TEXT NOT NULL,
+                price INTEGER NOT NULL,
+                status TEXT DEFAULT 'новый',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        self.conn.commit()
+
+    # ===== БРЕНДЫ =====
+
+    def add_brand(self, name: str, photo_id: str) -> Optional[int]:
         try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-
-                # Таблица брендов
-                cursor.execute('''
-                    CREATE TABLE IF NOT EXISTS brands (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        name TEXT NOT NULL UNIQUE,
-                        image_id TEXT,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                ''')
-
-                # Таблица товаров (жидкости)
-                cursor.execute('''
-                    CREATE TABLE IF NOT EXISTS liquids (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        brand_id INTEGER NOT NULL,
-                        name TEXT NOT NULL,
-                        flavor TEXT NOT NULL,
-                        strength TEXT NOT NULL,
-                        price INTEGER NOT NULL DEFAULT 0,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        FOREIGN KEY (brand_id) REFERENCES brands (id) ON DELETE CASCADE
-                    )
-                ''')
-
-                # Таблица заявок на покупку
-                cursor.execute('''
-                    CREATE TABLE IF NOT EXISTS purchase_requests (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        user_id INTEGER NOT NULL,
-                        user_name TEXT,
-                        username TEXT,
-                        liquid_id INTEGER NOT NULL,
-                        liquid_name TEXT NOT NULL,
-                        price INTEGER NOT NULL,
-                        status TEXT DEFAULT 'pending',
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        FOREIGN KEY (liquid_id) REFERENCES liquids (id) ON DELETE CASCADE
-                    )
-                ''')
-
-                conn.commit()
-                logger.info("База данных инициализирована")
-        except Exception as e:
-            logger.error(f"Ошибка инициализации БД: {e}")
-
-    # ===== Функции для брендов =====
-
-    def add_brand(self, name: str, image_id: str = "") -> Optional[int]:
-        """Добавление бренда"""
-        try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute('''
-                    INSERT INTO brands (name, image_id)
-                    VALUES (?, ?)
-                ''', (name, image_id))
-                conn.commit()
-                brand_id = cursor.lastrowid
-                logger.info(f"Бренд добавлен с ID: {brand_id}, название: {name}")
-                return brand_id
+            self.cursor.execute(
+                'INSERT INTO brands (name, photo_id) VALUES (?, ?)',
+                (name, photo_id)
+            )
+            self.conn.commit()
+            return self.cursor.lastrowid
         except sqlite3.IntegrityError:
-            logger.error(f"Бренд с названием {name} уже существует")
-            return None
-        except Exception as e:
-            logger.error(f"Ошибка добавления бренда: {e}")
             return None
 
     def get_all_brands(self) -> List[Dict]:
-        """Получение всех брендов"""
-        try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute('''
-                    SELECT id, name, image_id, created_at 
-                    FROM brands 
-                    ORDER BY name ASC
-                ''')
-                items = cursor.fetchall()
-                return [
-                    {
-                        'id': item[0],
-                        'name': item[1],
-                        'image_id': item[2] if item[2] else "",
-                        'created_at': item[3]
-                    }
-                    for item in items
-                ]
-        except Exception as e:
-            logger.error(f"Ошибка получения брендов: {e}")
-            return []
+        self.cursor.execute('SELECT id, name, photo_id FROM brands ORDER BY name')
+        return [
+            {'id': row[0], 'name': row[1], 'photo_id': row[2]}
+            for row in self.cursor.fetchall()
+        ]
 
-    def get_brand_by_id(self, brand_id: int) -> Optional[Dict]:
-        """Получение бренда по ID"""
-        try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute('''
-                    SELECT id, name, image_id, created_at 
-                    FROM brands 
-                    WHERE id = ?
-                ''', (brand_id,))
-                item = cursor.fetchone()
-                if item:
-                    return {
-                        'id': item[0],
-                        'name': item[1],
-                        'image_id': item[2] if item[2] else "",
-                        'created_at': item[3]
-                    }
-                return None
-        except Exception as e:
-            logger.error(f"Ошибка получения бренда по ID: {e}")
-            return None
+    def get_brand(self, brand_id: int) -> Optional[Dict]:
+        self.cursor.execute('SELECT id, name, photo_id FROM brands WHERE id = ?', (brand_id,))
+        row = self.cursor.fetchone()
+        if row:
+            return {'id': row[0], 'name': row[1], 'photo_id': row[2]}
+        return None
 
-    def delete_brand(self, brand_id: int) -> bool:
-        """Удаление бренда (все жидкости бренда удалятся автоматически из-за CASCADE)"""
-        try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute('DELETE FROM brands WHERE id = ?', (brand_id,))
-                conn.commit()
-                logger.info(f"Бренд {brand_id} удален")
-                return True
-        except Exception as e:
-            logger.error(f"Ошибка удаления бренда: {e}")
-            return False
+    def delete_brand(self, brand_id: int):
+        self.cursor.execute('DELETE FROM brands WHERE id = ?', (brand_id,))
+        self.conn.commit()
 
-    # ===== Функции для жидкостей =====
+    # ===== ТОВАРЫ =====
 
-    def add_liquid(self, brand_id: int, name: str, flavor: str, strength: str, price: int) -> Optional[int]:
-        """Добавление жидкости"""
-        try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute('''
-                    INSERT INTO liquids (brand_id, name, flavor, strength, price)
-                    VALUES (?, ?, ?, ?, ?)
-                ''', (brand_id, name, flavor, strength, price))
-                conn.commit()
-                liquid_id = cursor.lastrowid
-                logger.info(f"Жидкость добавлена с ID: {liquid_id}, цена: {price}₽")
-                return liquid_id
-        except Exception as e:
-            logger.error(f"Ошибка добавления жидкости: {e}")
-            return None
+    def add_product(self, brand_id: int, name: str, flavor: str, strength: str, price: int) -> int:
+        self.cursor.execute(
+            'INSERT INTO products (brand_id, name, flavor, strength, price) VALUES (?, ?, ?, ?, ?)',
+            (brand_id, name, flavor, strength, price)
+        )
+        self.conn.commit()
+        return self.cursor.lastrowid
 
-    def get_liquids_by_brand(self, brand_id: int) -> List[Dict]:
-        """Получение всех жидкостей бренда"""
-        try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute('''
-                    SELECT id, brand_id, name, flavor, strength, price, created_at 
-                    FROM liquids 
-                    WHERE brand_id = ?
-                    ORDER BY name ASC
-                ''', (brand_id,))
-                items = cursor.fetchall()
-                return [
-                    {
-                        'id': item[0],
-                        'brand_id': item[1],
-                        'name': item[2],
-                        'flavor': item[3],
-                        'strength': item[4],
-                        'price': item[5],
-                        'created_at': item[6]
-                    }
-                    for item in items
-                ]
-        except Exception as e:
-            logger.error(f"Ошибка получения жидкостей бренда: {e}")
-            return []
+    def get_products_by_brand(self, brand_id: int) -> List[Dict]:
+        self.cursor.execute(
+            'SELECT id, name, flavor, strength, price FROM products WHERE brand_id = ? ORDER BY name',
+            (brand_id,)
+        )
+        return [
+            {'id': row[0], 'name': row[1], 'flavor': row[2], 'strength': row[3], 'price': row[4]}
+            for row in self.cursor.fetchall()
+        ]
 
-    def get_liquid_by_id(self, liquid_id: int) -> Optional[Dict]:
-        """Получение жидкости по ID"""
-        try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute('''
-                    SELECT l.id, l.brand_id, l.name, l.flavor, l.strength, l.price, l.created_at,
-                           b.name as brand_name, b.image_id as brand_image
-                    FROM liquids l
-                    JOIN brands b ON l.brand_id = b.id
-                    WHERE l.id = ?
-                ''', (liquid_id,))
-                item = cursor.fetchone()
-                if item:
-                    return {
-                        'id': item[0],
-                        'brand_id': item[1],
-                        'name': item[2],
-                        'flavor': item[3],
-                        'strength': item[4],
-                        'price': item[5],
-                        'created_at': item[6],
-                        'brand_name': item[7],
-                        'brand_image': item[8] if item[8] else ""
-                    }
-                return None
-        except Exception as e:
-            logger.error(f"Ошибка получения жидкости по ID: {e}")
-            return None
+    def get_product(self, product_id: int) -> Optional[Dict]:
+        self.cursor.execute('''
+            SELECT p.id, p.name, p.flavor, p.strength, p.price, b.name, b.photo_id
+            FROM products p
+            JOIN brands b ON p.brand_id = b.id
+            WHERE p.id = ?
+        ''', (product_id,))
+        row = self.cursor.fetchone()
+        if row:
+            return {
+                'id': row[0],
+                'name': row[1],
+                'flavor': row[2],
+                'strength': row[3],
+                'price': row[4],
+                'brand_name': row[5],
+                'brand_photo': row[6]
+            }
+        return None
 
-    def delete_liquid(self, liquid_id: int) -> bool:
-        """Удаление жидкости"""
-        try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute('DELETE FROM liquids WHERE id = ?', (liquid_id,))
-                conn.commit()
-                logger.info(f"Жидкость {liquid_id} удалена")
-                return True
-        except Exception as e:
-            logger.error(f"Ошибка удаления жидкости: {e}")
-            return False
+    def update_product(self, product_id: int, name: str, flavor: str, strength: str, price: int):
+        self.cursor.execute(
+            'UPDATE products SET name = ?, flavor = ?, strength = ?, price = ? WHERE id = ?',
+            (name, flavor, strength, price, product_id)
+        )
+        self.conn.commit()
 
-    # ===== Функции для заявок на покупку =====
+    def delete_product(self, product_id: int):
+        self.cursor.execute('DELETE FROM products WHERE id = ?', (product_id,))
+        self.conn.commit()
 
-    def create_purchase_request(self, user_id: int, user_name: str, username: str, liquid_id: int, liquid_name: str,
-                                price: int) -> Optional[int]:
-        """Создание заявки на покупку"""
-        try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute('''
-                    INSERT INTO purchase_requests (user_id, user_name, username, liquid_id, liquid_name, price, status)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                ''', (user_id, user_name, username, liquid_id, liquid_name, price, 'pending'))
-                conn.commit()
-                request_id = cursor.lastrowid
-                logger.info(f"Заявка на покупку #{request_id} создана для жидкости {liquid_name}")
-                return request_id
-        except Exception as e:
-            logger.error(f"Ошибка создания заявки на покупку: {e}")
-            return None
+    # ===== ЗАКАЗЫ =====
 
-    def get_purchase_requests(self, status: str = None) -> List[Dict]:
-        """Получение заявок на покупку (для админа)"""
-        try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                if status:
-                    cursor.execute('''
-                        SELECT id, user_id, user_name, username, liquid_id, liquid_name, price, status, created_at 
-                        FROM purchase_requests 
-                        WHERE status = ?
-                        ORDER BY created_at DESC
-                    ''', (status,))
-                else:
-                    cursor.execute('''
-                        SELECT id, user_id, user_name, username, liquid_id, liquid_name, price, status, created_at 
-                        FROM purchase_requests 
-                        ORDER BY created_at DESC
-                    ''')
-                items = cursor.fetchall()
-                return [
-                    {
-                        'id': item[0],
-                        'user_id': item[1],
-                        'user_name': item[2],
-                        'username': item[3],
-                        'liquid_id': item[4],
-                        'liquid_name': item[5],
-                        'price': item[6],
-                        'status': item[7],
-                        'created_at': item[8]
-                    }
-                    for item in items
-                ]
-        except Exception as e:
-            logger.error(f"Ошибка получения заявок на покупку: {e}")
-            return []
+    def add_order(self, user_id: int, username: str, product_id: int, product_name: str, price: int) -> int:
+        self.cursor.execute(
+            'INSERT INTO orders (user_id, username, product_id, product_name, price) VALUES (?, ?, ?, ?, ?)',
+            (user_id, username, product_id, product_name, price)
+        )
+        self.conn.commit()
+        return self.cursor.lastrowid
 
-    def update_request_status(self, request_id: int, status: str) -> bool:
-        """Обновление статуса заявки"""
-        try:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute('UPDATE purchase_requests SET status = ? WHERE id = ?', (status, request_id))
-                conn.commit()
-                logger.info(f"Статус заявки {request_id} обновлен на {status}")
-                return True
-        except Exception as e:
-            logger.error(f"Ошибка обновления статуса заявки: {e}")
-            return False
+    def get_all_orders(self) -> List[Dict]:
+        self.cursor.execute('SELECT * FROM orders ORDER BY created_at DESC')
+        return [
+            {
+                'id': row[0],
+                'user_id': row[1],
+                'username': row[2],
+                'product_id': row[3],
+                'product_name': row[4],
+                'price': row[5],
+                'status': row[6],
+                'created_at': row[7]
+            }
+            for row in self.cursor.fetchall()
+        ]
+
+    def update_order_status(self, order_id: int, status: str):
+        self.cursor.execute('UPDATE orders SET status = ? WHERE id = ?', (status, order_id))
+        self.conn.commit()
