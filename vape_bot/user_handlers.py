@@ -15,27 +15,10 @@ from states import PurchaseStates
 import logging
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 
-# Инициализация
 router = Router()
 db = Database()
 logger = logging.getLogger(__name__)
 
-
-# ========== ОТЛАДОЧНЫЙ ХЕНДЛЕР ==========
-@router.callback_query()
-async def debug_all_callbacks(callback: CallbackQuery):
-    """Отлавливаем ВСЕ callback запросы для отладки"""
-    logger.info(f"🔍 ПОЛУЧЕН CALLBACK: {callback.data}")
-    print(f"🔍 CALLBACK: {callback.data}")
-
-    # Если это не наш callback, пропускаем
-    if not callback.data.startswith(('liquid_', 'buy_', 'confirm_buy_', 'cancel_buy_')):
-        return
-
-    await callback.answer(f"Обработано: {callback.data}", show_alert=False)
-
-
-# ========== ОСНОВНЫЕ ХЕНДЛЕРЫ ==========
 
 @router.message(Command("start"))
 async def cmd_start(message: Message):
@@ -127,7 +110,7 @@ async def start_purchase(callback: CallbackQuery, state: FSMContext):
         liquid_id = int(callback.data.replace('buy_', ''))
         logger.info(f"Пользователь {callback.from_user.id} нажал КУПИТЬ на товар ID {liquid_id}")
 
-        await callback.answer("Обрабатываю запрос...")
+        await callback.answer()
 
         liquid = db.get_liquid_by_id(liquid_id)
 
@@ -135,7 +118,6 @@ async def start_purchase(callback: CallbackQuery, state: FSMContext):
             await callback.message.edit_text("❌ Товар не найден")
             return
 
-        # Сохраняем информацию о товаре
         await state.update_data(
             liquid_id=liquid['id'],
             liquid_name=liquid['name'],
@@ -143,10 +125,6 @@ async def start_purchase(callback: CallbackQuery, state: FSMContext):
         )
 
         await state.set_state(PurchaseStates.waiting_for_username)
-
-        # Проверяем текущее состояние
-        current_state = await state.get_state()
-        logger.info(f"Установлено состояние: {current_state}")
 
         await callback.message.edit_text(
             f"📝 **Оформление покупки**\n\n"
@@ -156,35 +134,26 @@ async def start_purchase(callback: CallbackQuery, state: FSMContext):
             reply_markup=get_back_to_catalog_keyboard(),
             parse_mode="Markdown"
         )
-    except ValueError:
-        logger.error(f"Ошибка преобразования ID: {callback.data}")
-        await callback.answer("❌ Ошибка в ID товара", show_alert=True)
     except Exception as e:
         logger.error(f"Ошибка в start_purchase: {e}")
-        await callback.answer("❌ Ошибка при оформлении покупки", show_alert=True)
+        await callback.message.edit_text("❌ Ошибка при оформлении покупки")
 
 
 @router.message(PurchaseStates.waiting_for_username)
 async def process_username(message: Message, state: FSMContext):
     """Обработка ввода username"""
     try:
-        current_state = await state.get_state()
-        logger.info(f"Состояние process_username: {current_state}")
         logger.info(f"Получен username: {message.text}")
 
         username = message.text.strip()
 
-        # Проверяем формат username
         if not username.startswith('@'):
             username = '@' + username
 
-        # Сохраняем username
         await state.update_data(username=username)
 
         data = await state.get_data()
-        logger.info(f"Данные для подтверждения: {data}")
 
-        # Показываем подтверждение
         text = (
             f"✅ **Проверьте данные:**\n\n"
             f"🍼 **Товар:** {data['liquid_name']}\n"
@@ -214,12 +183,10 @@ async def confirm_purchase(callback: CallbackQuery, state: FSMContext):
         liquid_id = int(callback.data.replace('confirm_buy_', ''))
         logger.info(f"Пользователь {callback.from_user.id} подтвердил покупку товара ID {liquid_id}")
 
-        await callback.answer("Создаю заявку...")
+        await callback.answer()
 
         data = await state.get_data()
-        logger.info(f"Данные для создания заявки: {data}")
 
-        # Создаем заявку в базе данных
         request_id = db.create_purchase_request(
             user_id=callback.from_user.id,
             user_name=callback.from_user.full_name,
@@ -232,7 +199,6 @@ async def confirm_purchase(callback: CallbackQuery, state: FSMContext):
         if request_id:
             logger.info(f"Заявка #{request_id} создана успешно")
 
-            # Отправляем сообщение пользователю
             await callback.message.edit_text(
                 f"✅ **Заявка на покупку отправлена!**\n\n"
                 f"Номер заявки: #{request_id}\n"
@@ -244,7 +210,6 @@ async def confirm_purchase(callback: CallbackQuery, state: FSMContext):
                 parse_mode="Markdown"
             )
 
-            # Уведомление администраторам
             for admin_id in ADMIN_IDS:
                 try:
                     await callback.bot.send_message(
@@ -261,7 +226,6 @@ async def confirm_purchase(callback: CallbackQuery, state: FSMContext):
                 except Exception as e:
                     logger.error(f"Ошибка при уведомлении админа {admin_id}: {e}")
         else:
-            logger.error("Не удалось создать заявку")
             await callback.message.edit_text("❌ Ошибка при создании заявки")
 
         await state.clear()
@@ -277,10 +241,9 @@ async def cancel_purchase(callback: CallbackQuery, state: FSMContext):
     """Отмена покупки"""
     try:
         logger.info(f"Пользователь {callback.from_user.id} отменил покупку")
-        await callback.answer("Покупка отменена")
+        await callback.answer()
         await state.clear()
 
-        # Возвращаемся в каталог
         liquids = db.get_all_liquids()
 
         if liquids:

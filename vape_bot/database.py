@@ -20,7 +20,7 @@ class Database:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
 
-                # Таблица товаров (жидкости) - добавляем поле price
+                # Таблица товаров (жидкости)
                 cursor.execute('''
                     CREATE TABLE IF NOT EXISTS liquids (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -69,14 +69,14 @@ class Database:
                 ''', (name, flavor, strength, volume, price, image_id))
                 conn.commit()
                 liquid_id = cursor.lastrowid
-                logger.info(f"Жидкость добавлена с ID: {liquid_id}, цена: {price}₽")
+                logger.info(f"Жидкость добавлена с ID: {liquid_id}, цена: {price}₽, image_id: {image_id}")
                 return liquid_id
         except Exception as e:
             logger.error(f"Ошибка добавления жидкости: {e}")
             return None
 
     def get_all_liquids(self) -> List[Dict]:
-        """Получение всех жидкостей с ценой"""
+        """Получение всех жидкостей"""
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -104,7 +104,7 @@ class Database:
             return []
 
     def get_liquid_by_id(self, liquid_id: int) -> Optional[Dict]:
-        """Получение жидкости по ID с ценой"""
+        """Получение жидкости по ID"""
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -207,6 +207,7 @@ class Database:
                 cursor = conn.cursor()
                 cursor.execute('UPDATE purchase_requests SET status = ? WHERE id = ?', (status, request_id))
                 conn.commit()
+                logger.info(f"Статус заявки {request_id} обновлен на {status}")
                 return True
         except Exception as e:
             logger.error(f"Ошибка обновления статуса заявки: {e}")

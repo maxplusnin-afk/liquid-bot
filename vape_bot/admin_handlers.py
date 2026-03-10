@@ -1,16 +1,14 @@
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, \
-    InlineKeyboardButton  # Добавлены недостающие импорты
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from config import ADMIN_IDS  # Убрал OWNER_CONTACT, так как он не используется
+from config import ADMIN_IDS
 from database import Database
 from keyboards import (
     get_admin_keyboard,
     get_user_keyboard,
     get_cancel_keyboard,
     get_admin_liquids_keyboard
-    # Убрал неиспользуемый get_back_to_admin_keyboard
 )
 from states import LiquidStates
 import logging
@@ -138,36 +136,55 @@ async def process_image(message: Message, state: FSMContext):
     image_id_value = ""
     if message.photo:
         image_id_value = message.photo[-1].file_id
+        await message.answer("✅ Фото получено, сохраняю товар...")
     elif message.text and message.text.lower() == 'нет':
         image_id_value = ""
+        await message.answer("📝 Товар будет сохранен без фото")
     else:
-        await message.answer("❌ Отправьте фото или напишите 'нет'")
+        await message.answer("❌ Пожалуйста, отправьте фото или напишите 'нет'")
         return
 
     data = await state.get_data()
 
-    # Сохраняем жидкость с ценой - ИСПОЛЬЗУЕМ image_id_value
+    # Сохраняем жидкость
     liquid_id = db.add_liquid(
         name=data['name'],
         flavor=data['flavor'],
         strength=data['strength'],
         volume=data['volume'],
         price=data['price'],
-        image_id=image_id_value  # Переменная ИСПОЛЬЗУЕТСЯ здесь
+        image_id=image_id_value
     )
 
     if liquid_id:
-        await message.answer(
-            f"✅ **Жидкость успешно добавлена!**\n\n"
-            f"🆔 ID: {liquid_id}\n"
-            f"🏷 Название: {data['name']}\n"
-            f"👃 Вкус: {data['flavor']}\n"
-            f"💪 Крепость: {data['strength']} mg\n"
-            f"🧪 Объем: {data['volume']} ml\n"
-            f"💰 Цена: {data['price']}₽",
-            reply_markup=get_admin_keyboard(),
-            parse_mode="Markdown"
-        )
+        if image_id_value:
+            text = (
+                f"✅ **Жидкость успешно добавлена!**\n\n"
+                f"🆔 ID: {liquid_id}\n"
+                f"🏷 Название: {data['name']}\n"
+                f"👃 Вкус: {data['flavor']}\n"
+                f"💪 Крепость: {data['strength']} mg\n"
+                f"🧪 Объем: {data['volume']} ml\n"
+                f"💰 Цена: {data['price']}₽"
+            )
+            await message.answer_photo(
+                photo=image_id_value,
+                caption=text,
+                reply_markup=get_admin_keyboard(),
+                parse_mode="Markdown"
+            )
+        else:
+            await message.answer(
+                f"✅ **Жидкость успешно добавлена!**\n\n"
+                f"🆔 ID: {liquid_id}\n"
+                f"🏷 Название: {data['name']}\n"
+                f"👃 Вкус: {data['flavor']}\n"
+                f"💪 Крепость: {data['strength']} mg\n"
+                f"🧪 Объем: {data['volume']} ml\n"
+                f"💰 Цена: {data['price']}₽",
+                reply_markup=get_admin_keyboard(),
+                parse_mode="Markdown"
+            )
     else:
         await message.answer(
             "❌ Ошибка при добавлении жидкости",
@@ -230,7 +247,7 @@ async def show_purchase_requests(message: Message):
         await message.answer("📭 Заявок на покупку пока нет")
         return
 
-    for req in requests[:10]:  # Показываем последние 10
+    for req in requests[:10]:
         status_emoji = "⏳" if req['status'] == 'pending' else "✅"
         username_display = f"@{req['username']}" if req['username'] else "не указан"
 
@@ -244,7 +261,6 @@ async def show_purchase_requests(message: Message):
             f"📊 **Статус:** {'Ожидает' if req['status'] == 'pending' else 'Обработана'}"
         )
 
-        # Добавляем кнопки для админа - ИСПОЛЬЗУЕМ импортированные классы
         if req['status'] == 'pending':
             keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
