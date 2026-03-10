@@ -13,7 +13,7 @@ from keyboards import (
 from config import OWNER_CONTACT, ADMIN_IDS
 from states import PurchaseStates
 import logging
-from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
+from aiogram.exceptions import TelegramBadRequest  # Убрал TelegramForbiddenError, так как он не используется
 
 router = Router()
 db = Database()
@@ -32,8 +32,10 @@ async def cmd_start(message: Message):
             parse_mode="Markdown"
         )
         logger.info(f"Пользователь {message.from_user.id} запустил бота")
-    except Exception as e:
-        logger.error(f"Ошибка в cmd_start: {e}")
+    except TelegramBadRequest as e:
+        logger.error(f"Ошибка Telegram в cmd_start: {e}")
+    except Exception as unexpected_error:
+        logger.error(f"Неожиданная ошибка в cmd_start: {unexpected_error}")
 
 
 @router.message(F.text == "🍼 Каталог жидкостей")
@@ -55,8 +57,11 @@ async def show_catalog(message: Message, state: FSMContext):
             reply_markup=get_liquids_keyboard(liquids),
             parse_mode="Markdown"
         )
-    except Exception as e:
-        logger.error(f"Ошибка в show_catalog: {e}")
+    except TelegramBadRequest as e:
+        logger.error(f"Ошибка Telegram в show_catalog: {e}")
+        await message.answer("❌ Ошибка при загрузке каталога")
+    except Exception as unexpected_error:
+        logger.error(f"Неожиданная ошибка в show_catalog: {unexpected_error}")
         await message.answer("❌ Произошла ошибка. Попробуйте позже.")
 
 
@@ -84,23 +89,44 @@ async def show_liquid_details(callback: CallbackQuery):
             f"📞 **Продавец:** {OWNER_CONTACT}"
         )
 
-        if liquid['image_id']:
+        # Проверяем тип сообщения
+        if callback.message.photo or callback.message.video:
+            # Если сообщение с медиа, удаляем его и отправляем новое
             await callback.message.delete()
             await callback.message.answer_photo(
-                photo=liquid['image_id'],
+                photo=liquid['image_id'] if liquid['image_id'] else 'https://via.placeholder.com/300',
                 caption=text,
                 reply_markup=get_liquid_action_keyboard(liquid['id']),
                 parse_mode="Markdown"
             )
         else:
-            await callback.message.edit_text(
-                text,
-                reply_markup=get_liquid_action_keyboard(liquid['id']),
-                parse_mode="Markdown"
-            )
-    except Exception as e:
-        logger.error(f"Ошибка в show_liquid_details: {e}")
-        await callback.message.edit_text("❌ Произошла ошибка")
+            # Если текстовое сообщение - редактируем
+            try:
+                await callback.message.edit_text(
+                    text,
+                    reply_markup=get_liquid_action_keyboard(liquid['id']),
+                    parse_mode="Markdown"
+                )
+            except TelegramBadRequest:
+                # Если не получается отредактировать, удаляем и отправляем новое
+                await callback.message.delete()
+                await callback.message.answer(
+                    text,
+                    reply_markup=get_liquid_action_keyboard(liquid['id']),
+                    parse_mode="Markdown"
+                )
+    except ValueError:
+        logger.error(f"Некорректный ID жидкости: {callback.data}")
+        await callback.message.edit_text("❌ Ошибка в ID товара")
+    except TelegramBadRequest as e:
+        logger.error(f"Ошибка Telegram в show_liquid_details: {e}")
+        await callback.message.answer("❌ Ошибка при загрузке информации")
+    except Exception as unexpected_error:
+        logger.error(f"Неожиданная ошибка в show_liquid_details: {unexpected_error}")
+        try:
+            await callback.message.edit_text("❌ Произошла ошибка")
+        except:
+            await callback.message.answer("❌ Произошла ошибка")
 
 
 @router.callback_query(lambda c: c.data.startswith('buy_'))
@@ -126,17 +152,50 @@ async def start_purchase(callback: CallbackQuery, state: FSMContext):
 
         await state.set_state(PurchaseStates.waiting_for_username)
 
-        await callback.message.edit_text(
+        text = (
             f"📝 **Оформление покупки**\n\n"
             f"Товар: {liquid['name']}\n"
             f"Цена: {liquid['price']}₽\n\n"
-            f"✏️ Введите ваш Telegram username (например: @username):",
-            reply_markup=get_back_to_catalog_keyboard(),
-            parse_mode="Markdown"
+            f"✏️ Введите ваш Telegram username (например: @username):"
         )
-    except Exception as e:
-        logger.error(f"Ошибка в start_purchase: {e}")
-        await callback.message.edit_text("❌ Ошибка при оформлении покупки")
+
+        # Проверяем тип сообщения
+        if callback.message.photo or callback.message.video:
+            # Если сообщение с фото, удаляем и отправляем новое текстовое
+            await callback.message.delete()
+            await callback.message.answer(
+                text,
+                reply_markup=get_back_to_catalog_keyboard(),
+                parse_mode="Markdown"
+            )
+        else:
+            # Если текстовое - редактируем
+            try:
+                await callback.message.edit_text(
+                    text,
+                    reply_markup=get_back_to_catalog_keyboard(),
+                    parse_mode="Markdown"
+                )
+            except TelegramBadRequest:
+                # Если не получается отредактировать, удаляем и отправляем новое
+                await callback.message.delete()
+                await callback.message.answer(
+                    text,
+                    reply_markup=get_back_to_catalog_keyboard(),
+                    parse_mode="Markdown"
+                )
+    except ValueError:
+        logger.error(f"Некорректный ID товара: {callback.data}")
+        await callback.message.edit_text("❌ Ошибка в ID товара")
+    except TelegramBadRequest as e:
+        logger.error(f"Ошибка Telegram в start_purchase: {e}")
+        await callback.message.answer("❌ Ошибка при оформлении покупки")
+    except Exception as unexpected_error:
+        logger.error(f"Неожиданная ошибка в start_purchase: {unexpected_error}")
+        try:
+            await callback.message.edit_text("❌ Ошибка при оформлении покупки")
+        except:
+            await callback.message.answer("❌ Ошибка при оформлении покупки")
 
 
 @router.message(PurchaseStates.waiting_for_username)
@@ -171,8 +230,11 @@ async def process_username(message: Message, state: FSMContext):
 
         await state.set_state(PurchaseStates.confirm_purchase)
 
-    except Exception as e:
-        logger.error(f"Ошибка в process_username: {e}")
+    except TelegramBadRequest as e:
+        logger.error(f"Ошибка Telegram в process_username: {e}")
+        await message.answer("❌ Ошибка при обработке username")
+    except Exception as unexpected_error:
+        logger.error(f"Неожиданная ошибка в process_username: {unexpected_error}")
         await message.answer("❌ Ошибка при обработке username")
 
 
@@ -186,6 +248,12 @@ async def confirm_purchase(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
 
         data = await state.get_data()
+
+        # Проверяем, что данные есть
+        if not data or 'liquid_id' not in data:
+            await callback.message.edit_text("❌ Данные покупки не найдены. Начните заново.")
+            await state.clear()
+            return
 
         request_id = db.create_purchase_request(
             user_id=callback.from_user.id,
@@ -223,16 +291,29 @@ async def confirm_purchase(callback: CallbackQuery, state: FSMContext):
                         f"💰 **Цена:** {data['liquid_price']}₽",
                         parse_mode="Markdown"
                     )
+                except TelegramBadRequest as e:
+                    logger.error(f"Ошибка Telegram при уведомлении админа {admin_id}: {e}")
                 except Exception as e:
-                    logger.error(f"Ошибка при уведомлении админа {admin_id}: {e}")
+                    logger.error(f"Неожиданная ошибка при уведомлении админа {admin_id}: {e}")
         else:
             await callback.message.edit_text("❌ Ошибка при создании заявки")
 
         await state.clear()
 
-    except Exception as e:
-        logger.error(f"Ошибка в confirm_purchase: {e}")
+    except ValueError:
+        logger.error(f"Некорректный ID заявки: {callback.data}")
+        await callback.message.edit_text("❌ Ошибка в ID заявки")
+        await state.clear()
+    except TelegramBadRequest as e:
+        logger.error(f"Ошибка Telegram в confirm_purchase: {e}")
         await callback.message.edit_text("❌ Ошибка при подтверждении покупки")
+        await state.clear()
+    except Exception as unexpected_error:
+        logger.error(f"Неожиданная ошибка в confirm_purchase: {unexpected_error}")
+        try:
+            await callback.message.edit_text("❌ Ошибка при подтверждении покупки")
+        except:
+            await callback.message.answer("❌ Ошибка при подтверждении покупки")
         await state.clear()
 
 
@@ -246,19 +327,41 @@ async def cancel_purchase(callback: CallbackQuery, state: FSMContext):
 
         liquids = db.get_all_liquids()
 
-        if liquids:
-            await callback.message.edit_text(
-                "🍼 **Каталог жидкостей:**\n\n"
-                "Нажмите на интересующую позицию:",
+        if not liquids:
+            await callback.message.edit_text("📭 Каталог пуст")
+            return
+
+        text = "🍼 **Каталог жидкостей:**\n\nНажмите на интересующую позицию:"
+
+        # Проверяем тип сообщения
+        if callback.message.photo or callback.message.video:
+            await callback.message.delete()
+            await callback.message.answer(
+                text,
                 reply_markup=get_liquids_keyboard(liquids),
                 parse_mode="Markdown"
             )
         else:
-            await callback.message.edit_text("📭 Каталог пуст")
+            try:
+                await callback.message.edit_text(
+                    text,
+                    reply_markup=get_liquids_keyboard(liquids),
+                    parse_mode="Markdown"
+                )
+            except TelegramBadRequest:
+                await callback.message.delete()
+                await callback.message.answer(
+                    text,
+                    reply_markup=get_liquids_keyboard(liquids),
+                    parse_mode="Markdown"
+                )
 
-    except Exception as e:
-        logger.error(f"Ошибка в cancel_purchase: {e}")
-        await callback.message.edit_text("❌ Ошибка")
+    except TelegramBadRequest as e:
+        logger.error(f"Ошибка Telegram в cancel_purchase: {e}")
+        await callback.message.answer("❌ Ошибка при отмене")
+    except Exception as unexpected_error:
+        logger.error(f"Неожиданная ошибка в cancel_purchase: {unexpected_error}")
+        await callback.message.answer("❌ Ошибка")
 
 
 @router.message(F.text == "📞 Информация для покупки")
@@ -275,8 +378,12 @@ async def purchase_info(message: Message):
             "После этого продавец свяжется с вами!",
             parse_mode="Markdown"
         )
-    except Exception as e:
-        logger.error(f"Ошибка в purchase_info: {e}")
+    except TelegramBadRequest as e:
+        logger.error(f"Ошибка Telegram в purchase_info: {e}")
+        await message.answer("❌ Ошибка при отправке информации")
+    except Exception as unexpected_error:
+        logger.error(f"Неожиданная ошибка в purchase_info: {unexpected_error}")
+        await message.answer("❌ Произошла ошибка")
 
 
 @router.message(F.text == "🏠 Главное меню")
@@ -292,8 +399,10 @@ async def back_to_main(message: Message, state: FSMContext):
             reply_markup=get_user_keyboard(),
             parse_mode="Markdown"
         )
-    except Exception as e:
-        logger.error(f"Ошибка в back_to_main: {e}")
+    except TelegramBadRequest as e:
+        logger.error(f"Ошибка Telegram в back_to_main: {e}")
+    except Exception as unexpected_error:
+        logger.error(f"Неожиданная ошибка в back_to_main: {unexpected_error}")
 
 
 @router.callback_query(F.data == "back_to_catalog")
@@ -310,16 +419,36 @@ async def back_to_catalog(callback: CallbackQuery, state: FSMContext):
             await callback.message.edit_text("📭 Каталог пуст")
             return
 
-        try:
+        text = "🍼 **Каталог жидкостей:**\n\nНажмите на интересующую позицию:"
+
+        # Проверяем тип сообщения
+        if callback.message.photo or callback.message.video:
             await callback.message.delete()
+            await callback.message.answer(
+                text,
+                reply_markup=get_liquids_keyboard(liquids),
+                parse_mode="Markdown"
+            )
+        else:
+            try:
+                await callback.message.edit_text(
+                    text,
+                    reply_markup=get_liquids_keyboard(liquids),
+                    parse_mode="Markdown"
+                )
+            except TelegramBadRequest:
+                await callback.message.delete()
+                await callback.message.answer(
+                    text,
+                    reply_markup=get_liquids_keyboard(liquids),
+                    parse_mode="Markdown"
+                )
+    except TelegramBadRequest as e:
+        logger.error(f"Ошибка Telegram в back_to_catalog: {e}")
+        await callback.message.answer("❌ Ошибка при загрузке каталога")
+    except Exception as unexpected_error:
+        logger.error(f"Неожиданная ошибка в back_to_catalog: {unexpected_error}")
+        try:
+            await callback.message.answer("❌ Произошла ошибка")
         except:
             pass
-
-        await callback.message.answer(
-            "🍼 **Каталог жидкостей:**\n\n"
-            "Нажмите на интересующую позицию:",
-            reply_markup=get_liquids_keyboard(liquids),
-            parse_mode="Markdown"
-        )
-    except Exception as e:
-        logger.error(f"Ошибка в back_to_catalog: {e}")
