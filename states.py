@@ -1,14 +1,18 @@
 from aiogram.fsm.state import State, StatesGroup
 
-class CategoryStates(StatesGroup):
+class BrandStates(StatesGroup):
     name = State()
+    photo = State()
 
 class ProductStates(StatesGroup):
-    category_id = State()
+    brand_id = State()
     name = State()
     flavor = State()
     strength = State()
-    photo = State()
+    price = State()
     edit_id = State()
     edit_field = State()
     edit_value = State()
+
+class OrderStates(StatesGroup):
+    username = State()

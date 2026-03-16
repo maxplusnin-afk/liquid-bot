@@ -2,6 +2,7 @@ import asyncio
 import logging
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.client.session.aiohttp import AiohttpSession
 
 # Настройка логирования
 logging.basicConfig(
@@ -24,8 +25,6 @@ async def main():
         logger.error("BOT_TOKEN не найден")
         return
 
-    logger.info(f"Запуск бота... Админы: {ADMIN_IDS}")
-
     # Создаем бота и диспетчер
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher(storage=MemoryStorage())
@@ -34,24 +33,15 @@ async def main():
     dp.include_router(user_router)
     dp.include_router(admin_router)
 
-    try:
-        # Проверяем подключение
-        bot_info = await bot.get_me()
-        logger.info(f"Бот @{bot_info.username} успешно запущен!")
+    logger.info(f"Бот запущен! Админы: {ADMIN_IDS}")
 
-        # Запускаем поллинг
+    try:
         await dp.start_polling(bot)
     except Exception as e:
-        logger.error(f"Ошибка при запуске: {e}")
+        logger.error(f"Ошибка: {e}")
     finally:
         await bot.session.close()
-        logger.info("Сессия бота закрыта")
 
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        logger.info("Бот остановлен пользователем")
-    except Exception as e:
-        logger.error(f"Критическая ошибка: {e}")
+    asyncio.run(main())
